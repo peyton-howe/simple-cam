@@ -24,9 +24,23 @@ message(STATUS "    version: ${LIBEVENT_VERSION}")
 message(STATUS "    libraries: ${LIBEVENT_LINK_LIBRARIES}")
 message(STATUS "    include path: ${LIBEVENT_INCLUDE_DIRS}")
 
-include_directories(${CMAKE_SOURCE_DIR} ${LIBCAMERA_INCLUDE_DIRS} ${LIBEVENT_INCLUDE_DIRS})
+pkg_check_modules(X11 REQUIRED x11)
+message(STATUS "libcamera library found:")
+message(STATUS "    version: ${X11_VERSION}")
+message(STATUS "    libraries: ${X11_LINK_LIBRARIES}")
+message(STATUS "    include path: ${X11_INCLUDE_DIRS}")
 
-add_executable(simple-cam simple-cam.cpp event_loop.cpp)
+pkg_check_modules(EPOXY REQUIRED epoxy)
+message(STATUS "libcamera library found:")
+message(STATUS "    version: ${EPOXY_VERSION}")
+message(STATUS "    libraries: ${EPOXY_LINK_LIBRARIES}")
+message(STATUS "    include path: ${EPOXY_INCLUDE_DIRS}")
+
+include_directories(${CMAKE_SOURCE_DIR} ${LIBCAMERA_INCLUDE_DIRS} ${LIBEVENT_INCLUDE_DIRS} ${X11_INCLUDE_DIRS} ${EPOXY_INCLUDE_DIRS})
+set(TARGET_LIBS ${TARGET_LIBS} ${X11_LIBRARIES} ${EPOXY_LIBRARIES})
+
+add_executable(simple-cam simple-cam.cpp event_loop.cpp eglUtil.cpp)
 
 target_link_libraries(simple-cam PkgConfig::LIBEVENT)
 target_link_libraries(simple-cam PkgConfig::LIBCAMERA)
+target_link_libraries(simple-cam ${TARGET_LIBS})

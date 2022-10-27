@@ -1,11 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
-/*
- * Copyright (C) 2020, Google Inc.
- *
- * event_loop.h - Event loop based on cam's
- */
-#ifndef __SIMPLE_CAM_EVENT_LOOP_H__
-#define __SIMPLE_CAM_EVENT_LOOP_H__
+#pragma once
 
 #include <atomic>
 #include <functional>
@@ -41,5 +34,3 @@ private:
 	void interrupt();
 	void dispatchCalls();
 };
-
-#endif /* __SIMPLE_CAM_EVENT_LOOP_H__ */
