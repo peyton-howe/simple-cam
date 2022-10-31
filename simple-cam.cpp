@@ -11,12 +11,12 @@
 #include <memory>
 #include <boost/lexical_cast.hpp>
 
-#include <libcamera/libcamera.h>
+//#include <libcamera/libcamera.h>
 
 #include "event_loop.h"
 #include "eglUtil.h"
 
-#define TIMEOUT_SEC 1
+#define TIMEOUT_SEC 10
 
 using namespace libcamera;
 static std::shared_ptr<Camera> camera;
@@ -65,8 +65,12 @@ static void processRequest(Request *request)
 		StreamConfiguration const &cfg = stream->configuration();
 		int fd = buffer->planes()[0].fd.get();
 		 
-		std::cout << "width: " << cfg.size.width << " height: " << cfg.size.height << " stride: " << cfg.stride << "\n";
-		std::cout << "fd: " << fd << "\n";
+		//size_t size = buffer->metadata().planes[0].bytesused;
+		//const FrameBuffer::Plane &plane = buffer->planes().front();
+		//void *memory = mmap(NULL, plane.length, PROT_READ, MAP_SHARED, plane.fd.fd(), 0);
+		
+		//std::cout << "width: " << cfg.size.width << " height: " << cfg.size.height << " stride: " << cfg.stride << "\n";
+		//std::cout << "fd: " << fd << "\n";
 
 		/* Print some information about the buffer which has completed. */
 		std::cout << " seq: " << std::setw(6) << std::setfill('0') << metadata.sequence
@@ -84,6 +88,8 @@ static void processRequest(Request *request)
 		}
 
 		std::cout << std::endl;
+		
+		makeBuffer(fd, cfg, buffer, 1);
 
 		/*
 		 * Image data can be accessed here, but the FrameBuffer
@@ -112,9 +118,12 @@ static void processRequest2(Request *request)
 	
 	const Request::BufferMap &buffers2 = request->buffers();
 	for (auto bufferPair : buffers2) {
-		// (Unused) Stream *stream = bufferPair.first;
+		const Stream *stream = bufferPair.first;
 		FrameBuffer *buffer2 = bufferPair.second;
 		const FrameMetadata &metadata = buffer2->metadata();
+		
+		StreamConfiguration const &cfg2 = stream->configuration();
+		int fd2 = buffer2->planes()[0].fd.get();
 
 		/* Print some information about the buffer which has completed. */
 		std::cout << " seq: " << std::setw(6) << std::setfill('0') << metadata.sequence
@@ -130,6 +139,8 @@ static void processRequest2(Request *request)
 		}
 
 		std::cout << std::endl;
+		
+		makeBuffer(fd2, cfg2, buffer2, 2);
 
 		/*
 		 * Image data can be accessed here, but the FrameBuffer

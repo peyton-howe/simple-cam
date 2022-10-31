@@ -1,6 +1,11 @@
 #include "eglUtil.h"
 #include <stdio.h>
 
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+
+#include <epoxy/egl.h>
+#include <epoxy/gl.h>
 
 int x_;
 int y_;
@@ -17,6 +22,101 @@ EGLint vid;
 Display *display_;
 Atom wm_delete_window_;
 Window window_;
+
+bool first_time_ = true;
+
+
+static GLint compile_shader(GLenum target, const char *source)
+{
+	GLuint s = glCreateShader(target);
+	glShaderSource(s, 1, (const GLchar **)&source, NULL);
+	glCompileShader(s);
+
+	GLint ok;
+	glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+
+	if (!ok)
+	{
+		GLchar *info;
+		GLint size;
+
+		glGetShaderiv(s, GL_INFO_LOG_LENGTH, &size);
+		info = (GLchar *)malloc(size);
+
+		glGetShaderInfoLog(s, size, NULL, info);
+		throw std::runtime_error("failed to compile shader: " + std::string(info) + "\nsource:\n" +
+								 std::string(source));
+	}
+
+	return s;
+}
+
+static GLint link_program(GLint vs, GLint fs)
+{
+	GLint prog = glCreateProgram();
+	glAttachShader(prog, vs);
+	glAttachShader(prog, fs);
+	glLinkProgram(prog);
+
+	GLint ok;
+	glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+	if (!ok)
+	{
+		/* Some drivers return a size of 1 for an empty log.  This is the size
+		 * of a log that contains only a terminating NUL character.
+		 */
+		GLint size;
+		GLchar *info = NULL;
+		glGetProgramiv(prog, GL_INFO_LOG_LENGTH, &size);
+		if (size > 1)
+		{
+			info = (GLchar *)malloc(size);
+			glGetProgramInfoLog(prog, size, NULL, info);
+		}
+
+		throw std::runtime_error("failed to link: " + std::string(info ? info : "<empty log>"));
+	}
+
+	return prog;
+}
+
+static void gl_setup()
+{
+	float w_factor = 1920 / (float)1920;
+	float h_factor = 1080 / (float)1080;
+	float max_dimension = std::max(w_factor, h_factor);
+	w_factor /= max_dimension;
+	h_factor /= max_dimension;
+	char vs[256];
+	snprintf(vs, sizeof(vs),
+			 "attribute vec4 pos;\n"
+			 "varying vec2 texcoord;\n"
+			 "\n"
+			 "void main() {\n"
+			 "  gl_Position = pos;\n"
+			 "  texcoord.x = pos.x / %f + 0.5;\n"
+			 "  texcoord.y = 0.5 - pos.y / %f;\n"
+			 "}\n",
+			 2.0 * w_factor, 2.0 * h_factor);
+	vs[sizeof(vs) - 1] = 0;
+	GLint vs_s = compile_shader(GL_VERTEX_SHADER, vs);
+	const char *fs = "#extension GL_OES_EGL_image_external : enable\n"
+					 "precision mediump float;\n"
+					 "uniform samplerExternalOES s;\n"
+					 "varying vec2 texcoord;\n"
+					 "void main() {\n"
+					 "  gl_FragColor = texture2D(s, texcoord);\n"
+					 "}\n";
+	GLint fs_s = compile_shader(GL_FRAGMENT_SHADER, fs);
+	GLint prog = link_program(vs_s, fs_s);
+
+	glUseProgram(prog);
+
+	static const float verts[] = { -w_factor, -h_factor, w_factor, -h_factor, w_factor, h_factor, -w_factor, h_factor };
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, verts);
+	glEnableVertexAttribArray(0);
+}
+
 	
 int setupEGL(char const *name, int width, int height)
 {
@@ -135,4 +235,75 @@ int setupEGL(char const *name, int width, int height)
 	
 	
 	return 0;
+}
+
+void makeBuffer(int fd, libcamera::StreamConfiguration const &info, libcamera::FrameBuffer *buffer, int camera_num)
+{
+	if (first_time_)
+	{
+		// This stuff has to be delayed until we know we're in the thread doing the display.
+		if (!eglMakeCurrent(egl_display_, egl_surface_, egl_surface_, egl_context_))
+			throw std::runtime_error("eglMakeCurrent failed");
+		gl_setup();
+		first_time_ = false;
+	}
+	//buffer.fd = fd;
+	//buffer.size = size;
+	//buffer.info = info;
+	
+	//std::cout << "stride: " << info.stride << "\n";
+	//std::cout << "width: " << info.width << "\n";
+	//std::cout << "height: " << info.height << "\n";
+
+	//EGLint encoding, range;
+	GLuint FramebufferName = 0;
+	//get_colour_space_info(info.colour_space, encoding, range);
+
+	EGLint attribs[] = {
+		EGL_WIDTH, static_cast<EGLint>(info.size.width),
+		EGL_HEIGHT, static_cast<EGLint>(info.size.height),
+		EGL_LINUX_DRM_FOURCC_EXT, DRM_FORMAT_YUV420,
+		EGL_DMA_BUF_PLANE0_FD_EXT, fd,
+		EGL_DMA_BUF_PLANE0_OFFSET_EXT, 0,
+		EGL_DMA_BUF_PLANE0_PITCH_EXT, static_cast<EGLint>(info.stride),
+		EGL_DMA_BUF_PLANE1_FD_EXT, fd,
+		EGL_DMA_BUF_PLANE1_OFFSET_EXT, static_cast<EGLint>(info.stride * info.size.height),
+		EGL_DMA_BUF_PLANE1_PITCH_EXT, static_cast<EGLint>(info.stride / 2),
+		EGL_DMA_BUF_PLANE2_FD_EXT, fd,
+		EGL_DMA_BUF_PLANE2_OFFSET_EXT, static_cast<EGLint>(info.stride * info.size.height + (info.stride / 2) * (info.size.height / 2)),
+		EGL_DMA_BUF_PLANE2_PITCH_EXT, static_cast<EGLint>(info.stride / 2),
+		EGL_YUV_COLOR_SPACE_HINT_EXT, EGL_ITU_REC601_EXT,
+		EGL_SAMPLE_RANGE_HINT_EXT, EGL_YUV_NARROW_RANGE_EXT,
+		EGL_NONE
+	};
+
+	EGLImage image = eglCreateImageKHR(egl_display_, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, NULL, attribs);
+	if (!image)
+		throw std::runtime_error("failed to import fd " + std::to_string(fd));
+
+	glGenTextures(1, &FramebufferName);
+	glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName);
+	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, image);
+
+	eglDestroyImageKHR(egl_display_, image);
+	
+	glClearColor(0, 0, 0, 0);
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	if (camera_num == 1)
+	{
+		glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName);
+		glViewport(0,0,960,1080);
+	}
+	else
+	{
+		glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName);
+		glViewport(960,0,960,1080);
+	}
+		
+	
+	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	EGLBoolean success [[maybe_unused]] = eglSwapBuffers(egl_display_, egl_surface_);
 }
