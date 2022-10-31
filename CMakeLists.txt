@@ -45,7 +45,7 @@ message(STATUS "LIBDRM display mode enabled")
 include_directories(${CMAKE_SOURCE_DIR} ${LIBCAMERA_INCLUDE_DIRS} ${LIBEVENT_INCLUDE_DIRS} ${LIBDRM_INCLUDE_DIRS}) 
 set(TARGET_LIBS ${TARGET_LIBS} ${X11_LIBRARIES} ${EPOXY_LIBRARIES} ${LIBDRM_LIBRARIES})
 
-add_executable(simple-cam event_loop.cpp eglUtil.cpp mesh.cpp simple-cam.cpp) 
+add_executable(simple-cam event_loop.cpp eglUtil.cpp simple-cam.cpp) 
 
 target_link_libraries(simple-cam PkgConfig::LIBEVENT)
 target_link_libraries(simple-cam PkgConfig::LIBCAMERA)
