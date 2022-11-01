@@ -118,12 +118,12 @@ static void processRequest2(Request *request)
 	
 	const Request::BufferMap &buffers2 = request->buffers();
 	for (auto bufferPair : buffers2) {
-		const Stream *stream = bufferPair.first;
+		//const Stream *stream = bufferPair.first;
 		FrameBuffer *buffer2 = bufferPair.second;
 		const FrameMetadata &metadata = buffer2->metadata();
 		
-		StreamConfiguration const &cfg2 = stream->configuration();
-		int fd2 = buffer2->planes()[0].fd.get();
+		//StreamConfiguration const &cfg2 = stream->configuration();
+		//int fd2 = buffer2->planes()[0].fd.get();
 
 		/* Print some information about the buffer which has completed. */
 		std::cout << " seq: " << std::setw(6) << std::setfill('0') << metadata.sequence
@@ -140,7 +140,7 @@ static void processRequest2(Request *request)
 
 		std::cout << std::endl;
 		
-		makeBuffer(fd2, cfg2, buffer2, 2);
+		//makeBuffer(fd2, cfg2, buffer2, 2);
 
 		/*
 		 * Image data can be accessed here, but the FrameBuffer
@@ -207,6 +207,11 @@ int main()
 		
 	std::unique_ptr<CameraConfiguration> config2 =
 		camera2->generateConfiguration( { StreamRole::Viewfinder } );
+		
+	if (!config)
+		printf("failed to generate viewfinder configuration");
+	if (!config2)
+		printf("failed to generate viewfinder configuration for camera 2");
 	
 	StreamConfiguration &streamConfig = config->at(0);
 	std::cout << "Default viewfinder configuration is: "
@@ -215,6 +220,38 @@ int main()
 	StreamConfiguration &streamConfig2 = config2->at(0);
 	std::cout << "Default viewfinder configuration for camera 2 is: "
 		  << streamConfig2.toString() << std::endl;
+		  
+    Size size(1280, 960);
+	auto area = camera->properties().get(properties::PixelArrayActiveAreas);
+	
+    if (area)
+	{
+		// The idea here is that most sensors will have a 2x2 binned mode that
+		// we can pick up. If it doesn't, well, you can always specify the size
+		// you want exactly with the viewfinder_width/height options_->
+		size = (*area)[0].size() / 2;
+		// If width and height were given, we might be switching to capture
+		// afterwards - so try to match the field of view.
+		//if (options_->width && options_->height)
+		//	size = size.boundedToAspectRatio(Size(options_->width, options_->height));
+		size.alignDownTo(2, 2); // YUV420 will want to be even
+		std::cout << "Viewfinder size chosen is " << size.toString() << std::endl;
+	}
+
+	// Finally trim the image size to the largest that the preview can handle.
+	Size max_size;
+	//preview_->MaxImageSize(max_size.width, max_size.height);
+	if (max_size.width && max_size.height)
+	{
+		size.boundTo(max_size.boundedToAspectRatio(size)).alignDownTo(2, 2);
+		std::cout << "Final viewfinder size is " << size.toString() << std::endl;
+	}
+	
+    config->at(0).pixelFormat = libcamera::formats::YUV420;
+	config->at(0).size = size;
+	
+	config2->at(0).pixelFormat = libcamera::formats::YUV420;
+	config2->at(0).size = size;
 
 	/*
 	 * The Camera configuration procedure fails with invalid parameters.
@@ -302,8 +339,8 @@ int main()
 		/*
 		 * Controls can be added to a request on a per frame basis.
 		 */
-		ControlList &controls = request->controls();
-		controls.set(controls::Brightness, 0.5);
+		//ControlList &controls = request->controls();
+		//controls.set(controls::Brightness, 0.5);
 
 		requests.push_back(std::move(request));
 	}
@@ -331,17 +368,29 @@ int main()
 		/*
 		 * Controls can be added to a request on a per frame basis.
 		 */
-		ControlList &controls2 = request2->controls();
-		controls2.set(controls::Brightness, 0.5);
+		//ControlList &controls2 = request2->controls();
+		//controls2.set(controls::Brightness, 0.5);
 
 		requests2.push_back(std::move(request2));
 	}
 
 	camera->requestCompleted.connect(requestComplete);
 	camera2->requestCompleted.connect(requestComplete2);
+	
+    ControlList controls;
+    int64_t frame_time = 1000000 / 30;
+    // Set frame rate
+	controls.set(controls::FrameDurationLimits, { frame_time, frame_time });
+    // Adjust the brightness of the output images, in the range -1.0 to 1.0
+    controls.set(controls::Brightness, 0.0);
+    // Adjust the contrast of the output image, where 1.0 = normal contrast
+    controls.set(controls::Contrast, 1.0);
+    // Set the exposure time
+    controls.set(controls::ExposureTime, frame_time);
+    
 
-	camera->start();
-	camera2->start();
+	camera->start(&controls);
+	camera2->start(&controls);
 	
 	for (std::unique_ptr<Request> &request : requests)
 		camera->queueRequest(request.get());

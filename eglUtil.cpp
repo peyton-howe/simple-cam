@@ -291,17 +291,18 @@ void makeBuffer(int fd, libcamera::StreamConfiguration const &info, libcamera::F
 	
 	glClearColor(0, 0, 0, 0);
 	glClear(GL_COLOR_BUFFER_BIT);
+	glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName);
 
-	if (camera_num == 1)
-	{
-		glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName);
-		glViewport(0,0,960,1080);
-	}
-	else
-	{
-		glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName);
-		glViewport(960,0,960,1080);
-	}
+	//if (camera_num == 1)
+	//{
+	//	glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName);
+	//	glViewport(0,0,960,1080);
+	//}
+	//else
+	//{
+	//	glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName);
+	//	glViewport(960,0,960,1080);
+	//}
 		
 	
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
