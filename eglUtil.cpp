@@ -25,6 +25,9 @@ Window window_;
 
 bool first_time_ = true;
 
+GLuint FramebufferName = 0;
+GLuint FramebufferName2 = 1;
+
 
 static GLint compile_shader(GLenum target, const char *source)
 {
@@ -193,13 +196,7 @@ int setupEGL(char const *name, int width, int height)
 		XSetNormalHints(display_, window_, &sizehints);
 		XSetStandardProperties(display_, window_, name, name, None, (char **)NULL, 0, &sizehints);
 	}
-
-	//egl_display_ = eglGetDisplay(display_);
-	
-	//if (!eglInitialize(egl_display_, &versionMajor, &versionMinor))
-	//	printf("eglInitialize() failed\n");
-		
-		
+				
 	eglBindAPI(EGL_OPENGL_ES_API);
 
 	static const EGLint ctx_attribs[] = {
@@ -247,17 +244,6 @@ void makeBuffer(int fd, libcamera::StreamConfiguration const &info, libcamera::F
 		gl_setup();
 		first_time_ = false;
 	}
-	//buffer.fd = fd;
-	//buffer.size = size;
-	//buffer.info = info;
-	
-	//std::cout << "stride: " << info.stride << "\n";
-	//std::cout << "width: " << info.width << "\n";
-	//std::cout << "height: " << info.height << "\n";
-
-	//EGLint encoding, range;
-	GLuint FramebufferName = 0;
-	//get_colour_space_info(info.colour_space, encoding, range);
 
 	EGLint attribs[] = {
 		EGL_WIDTH, static_cast<EGLint>(info.size.width),
@@ -281,30 +267,36 @@ void makeBuffer(int fd, libcamera::StreamConfiguration const &info, libcamera::F
 	if (!image)
 		throw std::runtime_error("failed to import fd " + std::to_string(fd));
 
-	glGenTextures(1, &FramebufferName);
-	glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName);
+	if (camera_num == 1){
+		glGenTextures(1, &FramebufferName);
+		glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName);
+	}else if (camera_num == 2){
+		glGenTextures(1, &FramebufferName2);
+		glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName2);
+	}
+	
 	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, image);
 
 	eglDestroyImageKHR(egl_display_, image);
-	
+}
+
+void displayframe(){
 	glClearColor(0, 0, 0, 0);
 	glClear(GL_COLOR_BUFFER_BIT);
-	glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName);
-
-	//if (camera_num == 1)
-	//{
-	//	glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName);
-	//	glViewport(0,0,960,1080);
-	//}
-	//else
-	//{
-	//	glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName);
-	//	glViewport(960,0,960,1080);
-	//}
-		
 	
+	//Draw camera 1
+	glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName);
+	glViewport(0,0,960,1080);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);    // do i need this?
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	
+	//Draw camera 2
+	glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName2);
+	glViewport(960,0,960,1080);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);    // do i need this?
+	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	
 	EGLBoolean success [[maybe_unused]] = eglSwapBuffers(egl_display_, egl_surface_);
 }

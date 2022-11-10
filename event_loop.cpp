@@ -40,6 +40,7 @@ int EventLoop::exec()
 	while (!exit_.load(std::memory_order_acquire)) {
 		dispatchCalls();
 		event_base_loop(event_, EVLOOP_NO_EXIT_ON_EMPTY);
+		displayframe();
 	}
 
 	return exitCode_;

@@ -11,8 +11,6 @@
 #include <memory>
 #include <boost/lexical_cast.hpp>
 
-//#include <libcamera/libcamera.h>
-
 #include "event_loop.h"
 #include "eglUtil.h"
 
@@ -44,57 +42,14 @@ static void requestComplete2(Request *request)
 
 static void processRequest(Request *request)
 {
-	std::cout << std::endl
-		  << "Request completed: " << request->toString() << std::endl;
-		  
-	const ControlList &requestMetadata = request->metadata();
-	for (const auto &ctrl : requestMetadata) {
-		const ControlId *id = controls::controls.at(ctrl.first);
-		const ControlValue &value = ctrl.second;
-
-		std::cout << "\t" << id->name() << " = " << value.toString()
-			  << std::endl;
-	}
-
 	const Request::BufferMap &buffers = request->buffers();
 	for (auto bufferPair : buffers) {
 		const Stream *stream = bufferPair.first;
 		FrameBuffer *buffer = bufferPair.second;
-		const FrameMetadata &metadata = buffer->metadata();
-		
 		StreamConfiguration const &cfg = stream->configuration();
 		int fd = buffer->planes()[0].fd.get();
-		 
-		//size_t size = buffer->metadata().planes[0].bytesused;
-		//const FrameBuffer::Plane &plane = buffer->planes().front();
-		//void *memory = mmap(NULL, plane.length, PROT_READ, MAP_SHARED, plane.fd.fd(), 0);
-		
-		//std::cout << "width: " << cfg.size.width << " height: " << cfg.size.height << " stride: " << cfg.stride << "\n";
-		//std::cout << "fd: " << fd << "\n";
-
-		/* Print some information about the buffer which has completed. */
-		std::cout << " seq: " << std::setw(6) << std::setfill('0') << metadata.sequence
-			  << " timestamp: " << metadata.timestamp
-			  << " bytesused: ";
-
-
-		//std::cout << "Stride: " << stream->stride << " Width: " << stream->width << " Height: " << stream->height << std::endl;
-		unsigned int nplane = 0;
-		for (const FrameMetadata::Plane &plane : metadata.planes())
-		{
-			std::cout << plane.bytesused;
-			if (++nplane < metadata.planes().size())
-				std::cout << "/";
-		}
-
-		std::cout << std::endl;
 		
 		makeBuffer(fd, cfg, buffer, 1);
-
-		/*
-		 * Image data can be accessed here, but the FrameBuffer
-		 * must be mapped by the application
-		 */
 	}
 
 	/* Re-queue the Request to the camera. */	
@@ -103,51 +58,17 @@ static void processRequest(Request *request)
 }
 
 static void processRequest2(Request *request)
-{
-	std::cout << std::endl
-		  << "Request2 completed: " << request->toString() << std::endl;
-
-	const ControlList &requestMetadata = request->metadata();
-	for (const auto &ctrl : requestMetadata) {
-		const ControlId *id = controls::controls.at(ctrl.first);
-		const ControlValue &value = ctrl.second;
-
-		std::cout << "\t" << id->name() << " = " << value.toString()
-			  << std::endl;
-	}
-	
+{	
 	const Request::BufferMap &buffers2 = request->buffers();
 	for (auto bufferPair : buffers2) {
-		//const Stream *stream = bufferPair.first;
+		const Stream *stream = bufferPair.first;
 		FrameBuffer *buffer2 = bufferPair.second;
-		const FrameMetadata &metadata = buffer2->metadata();
+		StreamConfiguration const &cfg2 = stream->configuration();
+		int fd2 = buffer2->planes()[0].fd.get();
 		
-		//StreamConfiguration const &cfg2 = stream->configuration();
-		//int fd2 = buffer2->planes()[0].fd.get();
-
-		/* Print some information about the buffer which has completed. */
-		std::cout << " seq: " << std::setw(6) << std::setfill('0') << metadata.sequence
-			  << " timestamp: " << metadata.timestamp
-			  << " bytesused: ";
-
-		unsigned int nplane = 0;
-		for (const FrameMetadata::Plane &plane : metadata.planes())
-		{
-			std::cout << plane.bytesused;
-			if (++nplane < metadata.planes().size())
-				std::cout << "/";
-		}
-
-		std::cout << std::endl;
-		
-		//makeBuffer(fd2, cfg2, buffer2, 2);
-
-		/*
-		 * Image data can be accessed here, but the FrameBuffer
-		 * must be mapped by the application
-		 */
+		makeBuffer(fd2, cfg2, buffer2, 2);
 	}
-
+	
 	/* Re-queue the Request to the camera. */
 	request->reuse(Request::ReuseBuffers);
 	camera2->queueRequest(request);
@@ -401,7 +322,6 @@ int main()
 		
 	// Setup EGL context
 	setupEGL("simple-cam", 1920, 1080);
-	//glClearColor(0.8f, 0.2f, 0.1f, 1.0f);
 
 	loop.timeout(TIMEOUT_SEC);
 	int ret = loop.exec();

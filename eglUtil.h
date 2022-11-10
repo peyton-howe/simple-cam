@@ -12,7 +12,6 @@
 #include <epoxy/egl.h>
 #include <epoxy/gl.h>
 
-//#include "glhelp.h"
 
 struct Buffer
 {
@@ -22,3 +21,4 @@ struct Buffer
 
 int setupEGL(char const *name, int width, int height);
 void makeBuffer(int fd, libcamera::StreamConfiguration const &cfg, libcamera::FrameBuffer *buffer, int camera_num);
+void displayframe();
