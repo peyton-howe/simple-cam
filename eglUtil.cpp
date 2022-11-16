@@ -6,6 +6,7 @@
 
 #include <epoxy/egl.h>
 #include <epoxy/gl.h>
+#include <iostream>
 
 int x_;
 int y_;
@@ -25,9 +26,8 @@ Window window_;
 
 bool first_time_ = true;
 
-GLuint FramebufferName = 0;
-GLuint FramebufferName2 = 1;
-
+GLuint FramebufferName;
+GLuint FramebufferName2;
 
 static GLint compile_shader(GLenum target, const char *source)
 {
@@ -118,6 +118,8 @@ static void gl_setup()
 	static const float verts[] = { -w_factor, -h_factor, w_factor, -h_factor, w_factor, h_factor, -w_factor, h_factor };
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, verts);
 	glEnableVertexAttribArray(0);
+	glGenTextures(1, &FramebufferName);
+	glGenTextures(1, &FramebufferName2);
 }
 
 	
@@ -268,10 +270,16 @@ void makeBuffer(int fd, libcamera::StreamConfiguration const &info, libcamera::F
 		throw std::runtime_error("failed to import fd " + std::to_string(fd));
 
 	if (camera_num == 1){
-		glGenTextures(1, &FramebufferName);
+		//if (glIsTexture(FramebufferName))
+		//	glDeleteTextures(1, &FramebufferName);
+		//glDeleteTextures(1, &FramebufferName);
+		//glGenTextures(1, &FramebufferName);
 		glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName);
 	}else if (camera_num == 2){
-		glGenTextures(1, &FramebufferName2);
+		//if (glIsTexture(FramebufferName2))
+		//	glDeleteTextures(1, &FramebufferName2);
+		//glDeleteTextures(1, &FramebufferName2);
+		//glGenTextures(1, &FramebufferName2);
 		glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName2);
 	}
 	
@@ -289,13 +297,13 @@ void displayframe(){
 	//Draw camera 1
 	glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName);
 	glViewport(0,0,960,1080);
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);    // do i need this?
+	//glBindFramebuffer(GL_FRAMEBUFFER, 0);    // do i need this?
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 	
 	//Draw camera 2
 	glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName2);
 	glViewport(960,0,960,1080);
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);    // do i need this?
+	//glBindFramebuffer(GL_FRAMEBUFFER, 0);    // do i need this?
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 	
 	EGLBoolean success [[maybe_unused]] = eglSwapBuffers(egl_display_, egl_surface_);

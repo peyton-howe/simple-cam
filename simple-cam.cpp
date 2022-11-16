@@ -14,7 +14,7 @@
 #include "event_loop.h"
 #include "eglUtil.h"
 
-#define TIMEOUT_SEC 10
+#define TIMEOUT_SEC 100
 
 using namespace libcamera;
 static std::shared_ptr<Camera> camera;
@@ -144,6 +144,7 @@ int main()
 		  
     Size size(1280, 960);
 	auto area = camera->properties().get(properties::PixelArrayActiveAreas);
+	size = Size(960, 1080);
 	
     if (area)
 	{
@@ -299,7 +300,7 @@ int main()
 	camera2->requestCompleted.connect(requestComplete2);
 	
     ControlList controls;
-    int64_t frame_time = 1000000 / 30;
+    int64_t frame_time = 1000000 / 40;
     // Set frame rate
 	controls.set(controls::FrameDurationLimits, { frame_time, frame_time });
     // Adjust the brightness of the output images, in the range -1.0 to 1.0
@@ -339,6 +340,8 @@ int main()
 	camera.reset();
 	camera2.reset();
 	cm->stop();
+	requests.clear();
+	requests2.clear();
 
 	return EXIT_SUCCESS;
 }

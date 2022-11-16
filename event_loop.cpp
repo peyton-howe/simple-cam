@@ -36,11 +36,27 @@ int EventLoop::exec()
 {
 	exitCode_ = -1;
 	exit_.store(false, std::memory_order_release);
+	auto lastTime = std::chrono::high_resolution_clock::now();
+	int nFrames = 0;
+	int lastFrames = 0;
 
 	while (!exit_.load(std::memory_order_acquire)) {
 		dispatchCalls();
 		event_base_loop(event_, EVLOOP_NO_EXIT_ON_EMPTY);
 		displayframe();
+	    nFrames++;
+		if (nFrames % 160 == 0)
+		{ // Log FPS
+			auto currentTime = std::chrono::high_resolution_clock::now();
+			int elapsedMS = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - lastTime).count();
+			float elapsedS = (float)elapsedMS / 1000;
+			lastTime = currentTime;
+			int frames = (nFrames - lastFrames);
+			lastFrames = nFrames;
+			float fps = frames / elapsedS;
+			//int droppedFrames = 0;
+			printf("%d frames over %.2fs (%.1ffps)! \n", frames, elapsedS, fps);
+		}
 	}
 
 	return exitCode_;

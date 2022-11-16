@@ -12,13 +12,6 @@
 #include <epoxy/egl.h>
 #include <epoxy/gl.h>
 
-
-struct Buffer
-{
-	int fd;
-	GLuint texture;
-};
-
 int setupEGL(char const *name, int width, int height);
 void makeBuffer(int fd, libcamera::StreamConfiguration const &cfg, libcamera::FrameBuffer *buffer, int camera_num);
 void displayframe();
