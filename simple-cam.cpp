@@ -11,6 +11,7 @@
 #include <memory>
 #include <boost/lexical_cast.hpp>
 
+#include "simple-cam.h"
 #include "event_loop.h"
 #include "eglUtil.h"
 
@@ -74,39 +75,67 @@ static void processRequest2(Request *request)
 	camera2->queueRequest(request);
 }
 
-std::string cameraName(Camera *camera)
+int main(int argc, char **argv)
 {
-
-	//const ControlList &props = camera->properties();
-	std::string name;
-	auto location = camera->properties().get(properties::Location);
-	
-	if (location == properties::CameraLocationFront)
-		name = "Internal front camera";
-	else if (location == properties::CameraLocationBack)
-		name = "Internal back camera";
-	else if (location == properties::CameraLocationExternal) {
-		name = "External camera";
-		//auto model = camera->properties().get(properties::Model);
-		//name = " '" + model + "'";
+	options params = {
+		.render_mode = egl_render,
+		.width = (unsigned int)cam_width,
+		.height = (unsigned int)cam_height,
+		.preview = preview_mode,
+		.prev_x = 0, 
+		.prev_y = 0, 
+		.prev_width = 0, 
+		.prev_height = 0,
+		.fps = (float)cam_fps,
+		.shutterSpeed = cam_shutter,
+		.exposure = cam_exposure,
+		.exposure_index = cam_exposure_index
+	};
+			
+	int arg;
+	while ((arg = getopt(argc, argv, "r:w:h:p:f:s:e:")) != -1)
+	{
+		switch (arg)
+		{
+			case 'r':
+				if (strcmp(optarg, "DRM") == 0) params.render_mode = drm_render = std::stoi(optarg);
+				else if (strcmp(optarg, "EGL") == 0) params.render_mode = egl_render = std::stoi(optarg);
+				else params.render_mode = egl_render;
+				break;
+			case 'w':
+				params.width = cam_width = std::stoi(optarg);
+				break;
+			case 'h':
+				params.height = cam_height = std::stoi(optarg);
+				break;
+			case 'p':
+				params.preview = preview_mode = std::stoi(optarg);
+				if (sscanf(params.preview.c_str(), "%u,%u,%u,%u", &params.prev_x, &params.prev_y, &params.prev_width, &params.prev_height) != 4)
+					params.prev_x = params.prev_y = params.prev_width = params.prev_height = 0; // use default window
+				break;
+			case 'f':
+				params.fps = cam_fps = std::stoi(optarg);
+				break;
+			case 's':
+				params.shutterSpeed = cam_shutter = std::stoi(optarg);
+				break;
+			case 'e':
+				if (strcmp(optarg, "sport") == 0) params.exposure = cam_exposure1 = std::stoi(optarg);
+				else if (strcmp(optarg, "short") == 0) params.exposure = cam_exposure1 = std::stoi(optarg);
+				else if (strcmp(optarg, "long") == 0) params.exposure = cam_exposure2 = std::stoi(optarg);
+				else if (strcmp(optarg, "custom") == 0) params.exposure = cam_exposure3 = std::stoi(optarg);
+				else params.exposure = cam_exposure;
+				break;
+			default:
+				printf("Usage: %s [-r render_mode] [-w width] [-h height] [-p x,y,width,height][-f fps] [-s shutter-speed-ns] [-e exposure] \n", argv[0]);
+				break;
+		}
 	}
-
-	name += " (" + camera->id() + ")";
-
-	return name;
-}
-
-int main()
-{
+	if (optind < argc - 1)
+		printf("Usage: %s [-r render_mode] [-w width] [-h height] [-p width,height,x_off,y_off][-f fps] [-s shutter-speed-ns] [-e exposure] \n", argv[0]);
+		
 	std::unique_ptr<CameraManager> cm = std::make_unique<CameraManager>();
 	cm->start();
-
-	/*
-	 * Just as a test, generate names of the Cameras registered in the
-	 * system, and list them.
-	 */
-	for (auto const &camera : cm->cameras())
-		std::cout << " - " << cameraName(camera.get()) << std::endl;
 
 	if (cm->cameras().empty()) {
 		std::cout << "No cameras were identified on the system."
@@ -141,11 +170,12 @@ int main()
 	StreamConfiguration &streamConfig2 = config2->at(0);
 	std::cout << "Default viewfinder configuration for camera 2 is: "
 		  << streamConfig2.toString() << std::endl;
-		  
-    Size size(1280, 960);
-	auto area = camera->properties().get(properties::PixelArrayActiveAreas);
-	size = Size(960, 1080);
 	
+	//std::cout << options->exposure << "\n";
+	
+    //Size size(1280, 960);
+    Size size(960, 1080);
+	auto area = camera->properties().get(properties::PixelArrayActiveAreas);
     if (area)
 	{
 		// The idea here is that most sensors will have a 2x2 binned mode that
@@ -154,8 +184,12 @@ int main()
 		size = (*area)[0].size() / 2;
 		// If width and height were given, we might be switching to capture
 		// afterwards - so try to match the field of view.
+		//std::cout << "im here\n";
 		//if (options_->width && options_->height)
-		//	size = size.boundedToAspectRatio(Size(options_->width, options_->height));
+		//{
+		//	std::cout << "im here\n";
+		size = size.boundedToAspectRatio(Size(params.width, params.height));
+		//}
 		size.alignDownTo(2, 2); // YUV420 will want to be even
 		std::cout << "Viewfinder size chosen is " << size.toString() << std::endl;
 	}
@@ -299,16 +333,43 @@ int main()
 	camera->requestCompleted.connect(requestComplete);
 	camera2->requestCompleted.connect(requestComplete2);
 	
-    ControlList controls;
-    int64_t frame_time = 1000000 / 40;
+	ControlList controls;
+	
+	std::map<std::string, int> exposure_table =
+		{ { "normal", libcamera::controls::ExposureNormal },
+			{ "sport", libcamera::controls::ExposureShort },
+			{ "short", libcamera::controls::ExposureShort },
+			{ "long", libcamera::controls::ExposureLong },
+			{ "custom", libcamera::controls::ExposureCustom } };
+	if (exposure_table.count(params.exposure) == 0)
+		throw std::runtime_error("Invalid exposure mode:" + params.exposure);
+	cam_exposure_index = exposure_table[params.exposure];
+	
+	if (!controls.get(controls::AeExposureMode))
+	{
+		std::cout << "exposure_index" << cam_exposure_index << "\n";
+		controls.set(controls::AeExposureMode, cam_exposure_index);
+	}
+		
+	if (!controls.get(controls::ExposureTime))
+		controls.set(controls::ExposureTime, params.shutterSpeed);
+	
+	if (params.fps > 0)
+	{
+		int64_t frame_time = 1000000 / params.fps; // in us
+		controls.set(controls::FrameDurationLimits, libcamera::Span<const int64_t, 2>({ frame_time, frame_time }));
+	}
+    //int64_t frame_time = 1000000 / 40;
     // Set frame rate
-	controls.set(controls::FrameDurationLimits, { frame_time, frame_time });
+	//controls.set(controls::FrameDurationLimits, { frame_time, frame_time });
     // Adjust the brightness of the output images, in the range -1.0 to 1.0
-    controls.set(controls::Brightness, 0.0);
+    if (!controls.get(controls::Brightness))
+		controls.set(controls::Brightness, 0.0);
     // Adjust the contrast of the output image, where 1.0 = normal contrast
-    controls.set(controls::Contrast, 1.0);
+    if (!controls.get(controls::Contrast))
+		controls.set(controls::Contrast, 1.0);
     // Set the exposure time
-    controls.set(controls::ExposureTime, frame_time);
+    //controls.set(controls::ExposureTime, frame_time);
     
 
 	camera->start(&controls);
