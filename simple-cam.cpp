@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
- * Copyright (C) 2020, Ideas on Board Oy.
+ * Copyright (C) 2022, Peyton Howe
  *
- * A simple libcamera capture example
+ * A simple dual-camera libcamera capture program
  */
 
 #include <iomanip>
@@ -11,11 +11,25 @@
 #include <memory>
 #include <boost/lexical_cast.hpp>
 
-#include "simple-cam.h"
 #include "event_loop.h"
 #include "eglUtil.h"
 
-#define TIMEOUT_SEC 100
+
+struct options
+{
+	std::string render_mode;
+	unsigned int width;
+	unsigned int height;
+	unsigned int  prev_x, prev_y, prev_width, prev_height;
+	float fps;
+	float shutterSpeed;
+	std::string exposure;
+	int exposure_index;
+	int timeout;
+};
+
+std::unique_ptr<options> options_;
+int cam_exposure_index;
 
 using namespace libcamera;
 static std::shared_ptr<Camera> camera;
@@ -78,62 +92,65 @@ static void processRequest2(Request *request)
 int main(int argc, char **argv)
 {
 	options params = {
-		.render_mode = egl_render,
-		.width = (unsigned int)cam_width,
-		.height = (unsigned int)cam_height,
-		.preview = preview_mode,
+		.render_mode = "EGL",
+		.width = 1280, //default
+		.height = 960, //default
 		.prev_x = 0, 
 		.prev_y = 0, 
-		.prev_width = 0, 
-		.prev_height = 0,
-		.fps = (float)cam_fps,
-		.shutterSpeed = cam_shutter,
-		.exposure = cam_exposure,
-		.exposure_index = cam_exposure_index
+		.prev_width = 1920, 
+		.prev_height = 1080,
+		.fps = 30.0,
+		.shutterSpeed = 0,
+		.exposure = "normal",
+		.exposure_index = cam_exposure_index,
+		.timeout = 10
 	};
 			
 	int arg;
-	while ((arg = getopt(argc, argv, "r:w:h:p:f:s:e:")) != -1)
+	while ((arg = getopt(argc, argv, "r:w:h:p:f:s:e:t:")) != -1)
 	{
 		switch (arg)
 		{
 			case 'r':
-				if (strcmp(optarg, "DRM") == 0) params.render_mode = drm_render = std::stoi(optarg);
-				else if (strcmp(optarg, "EGL") == 0) params.render_mode = egl_render = std::stoi(optarg);
-				else params.render_mode = egl_render;
+				if (strcmp(optarg, "DRM") == 0) params.render_mode = "DRM";
+				else if (strcmp(optarg, "EGL") == 0) params.render_mode = "EGL";
+				else printf("Unkown render mode, defaulting to EGL\n");
 				break;
 			case 'w':
-				params.width = cam_width = std::stoi(optarg);
+				params.width = std::stoi(optarg);
 				break;
 			case 'h':
-				params.height = cam_height = std::stoi(optarg);
+				params.height = std::stoi(optarg);
 				break;
 			case 'p':
-				params.preview = preview_mode = std::stoi(optarg);
-				if (sscanf(params.preview.c_str(), "%u,%u,%u,%u", &params.prev_x, &params.prev_y, &params.prev_width, &params.prev_height) != 4)
-					params.prev_x = params.prev_y = params.prev_width = params.prev_height = 0; // use default window
+			    sscanf(optarg, "%u,%u,%u,%u", &params.prev_x, &params.prev_y, &params.prev_width, &params.prev_height);
 				break;
 			case 'f':
-				params.fps = cam_fps = std::stoi(optarg);
+				params.fps = std::stoi(optarg);
 				break;
 			case 's':
-				params.shutterSpeed = cam_shutter = std::stoi(optarg);
+				params.shutterSpeed = std::stoi(optarg);
 				break;
 			case 'e':
-				if (strcmp(optarg, "sport") == 0) params.exposure = cam_exposure1 = std::stoi(optarg);
-				else if (strcmp(optarg, "short") == 0) params.exposure = cam_exposure1 = std::stoi(optarg);
-				else if (strcmp(optarg, "long") == 0) params.exposure = cam_exposure2 = std::stoi(optarg);
-				else if (strcmp(optarg, "custom") == 0) params.exposure = cam_exposure3 = std::stoi(optarg);
-				else params.exposure = cam_exposure;
+				if (strcmp(optarg, "normal") == 0) params.exposure = "normal";
+				else if (strcmp(optarg, "sport") == 0) params.exposure = "sport";
+				else if (strcmp(optarg, "short") == 0) params.exposure = "short";
+				else if (strcmp(optarg, "long") == 0) params.exposure = "long";
+				else if (strcmp(optarg, "custom") == 0) params.exposure = "custom";
+				else printf("Unkown exposure mode, defaulting to noraml\n");
+				break;
+			case 't':
+				params.timeout = std::stoi(optarg);
 				break;
 			default:
-				printf("Usage: %s [-r render_mode] [-w width] [-h height] [-p x,y,width,height][-f fps] [-s shutter-speed-ns] [-e exposure] \n", argv[0]);
+				printf("Usage: %s [-r render_mode] [-w width] [-h height] [-p x,y,width,height][-f fps] [-s shutter-speed-ns] [-e exposure] [-t timeout] \n", argv[0]);
 				break;
 		}
 	}
-	if (optind < argc - 1)
-		printf("Usage: %s [-r render_mode] [-w width] [-h height] [-p width,height,x_off,y_off][-f fps] [-s shutter-speed-ns] [-e exposure] \n", argv[0]);
-		
+	
+	if (arg < 1)
+		printf("Usage: %s [-r render_mode] [-w width] [-h height] [-p width,height,x_off,y_off][-f fps] [-s shutter-speed-ns] [-e exposure] [-t timeout] \n", argv[0]);
+	
 	std::unique_ptr<CameraManager> cm = std::make_unique<CameraManager>();
 	cm->start();
 
@@ -164,74 +181,33 @@ int main(int argc, char **argv)
 		printf("failed to generate viewfinder configuration for camera 2");
 	
 	StreamConfiguration &streamConfig = config->at(0);
-	std::cout << "Default viewfinder configuration is: "
-		  << streamConfig.toString() << std::endl;
-		  
 	StreamConfiguration &streamConfig2 = config2->at(0);
-	std::cout << "Default viewfinder configuration for camera 2 is: "
-		  << streamConfig2.toString() << std::endl;
 	
-	//std::cout << options->exposure << "\n";
+	std::cout << "Default viewfinder configuration is: " << streamConfig.toString() << std::endl;
+	std::cout << "Default viewfinder configuration2 is: " << streamConfig2.toString() << std::endl;
 	
-    //Size size(1280, 960);
-    Size size(960, 1080);
+    Size size(1280, 960);
 	auto area = camera->properties().get(properties::PixelArrayActiveAreas);
     if (area)
 	{
 		// The idea here is that most sensors will have a 2x2 binned mode that
-		// we can pick up. If it doesn't, well, you can always specify the size
-		// you want exactly with the viewfinder_width/height options_->
+		// we can pick up. 
 		size = (*area)[0].size() / 2;
-		// If width and height were given, we might be switching to capture
-		// afterwards - so try to match the field of view.
-		//std::cout << "im here\n";
-		//if (options_->width && options_->height)
-		//{
-		//	std::cout << "im here\n";
 		size = size.boundedToAspectRatio(Size(params.width, params.height));
-		//}
 		size.alignDownTo(2, 2); // YUV420 will want to be even
 		std::cout << "Viewfinder size chosen is " << size.toString() << std::endl;
 	}
-
-	// Finally trim the image size to the largest that the preview can handle.
-	Size max_size;
-	//preview_->MaxImageSize(max_size.width, max_size.height);
-	if (max_size.width && max_size.height)
-	{
-		size.boundTo(max_size.boundedToAspectRatio(size)).alignDownTo(2, 2);
-		std::cout << "Final viewfinder size is " << size.toString() << std::endl;
-	}
 	
-    config->at(0).pixelFormat = libcamera::formats::YUV420;
-	config->at(0).size = size;
-	
-	config2->at(0).pixelFormat = libcamera::formats::YUV420;
-	config2->at(0).size = size;
+    config->at(0).pixelFormat = config2->at(0).pixelFormat = libcamera::formats::YUV420;
+	config->at(0).size = config2->at(0).size = size;
 
-	/*
-	 * The Camera configuration procedure fails with invalid parameters.
-	 */
-#if 0
-	streamConfig.size.width = 0; //4096
-	streamConfig.size.height = 0; //2560
-	
-	streamConfig2.size.width = 0; //4096
-	streamConfig2.size.height = 0; //2560
-
-	int ret = camera->configure(config.get());
-	if (ret) {
+	int val = camera->configure(config.get());
+	int val2 = camera2->configure(config2.get());
+	if (val || val2) {
 		std::cout << "CONFIGURATION FAILED!" << std::endl;
 		return EXIT_FAILURE;
 	}
 	
-	int ret2 = camera2->configure(config2.get());
-	if (ret2) {
-		std::cout << "CONFIGURATION FAILED!" << std::endl;
-		return EXIT_FAILURE;
-	}
-#endif
-
 	config->validate();
 	std::cout << "Validated viewfinder configuration is: "
 		  << streamConfig.toString() << std::endl;
@@ -341,53 +317,44 @@ int main(int argc, char **argv)
 			{ "short", libcamera::controls::ExposureShort },
 			{ "long", libcamera::controls::ExposureLong },
 			{ "custom", libcamera::controls::ExposureCustom } };
+			
 	if (exposure_table.count(params.exposure) == 0)
 		throw std::runtime_error("Invalid exposure mode:" + params.exposure);
 	cam_exposure_index = exposure_table[params.exposure];
 	
 	if (!controls.get(controls::AeExposureMode))
-	{
-		std::cout << "exposure_index" << cam_exposure_index << "\n";
 		controls.set(controls::AeExposureMode, cam_exposure_index);
-	}
-		
 	if (!controls.get(controls::ExposureTime))
 		controls.set(controls::ExposureTime, params.shutterSpeed);
+	//if (!controls.get(controls::Brightness)) // Adjust the brightness of the output images, in the range -1.0 to 1.0
+	//	controls.set(controls::Brightness, 0.0);
+	//if (!controls.get(controls::Contrast)) // Adjust the contrast of the output image, where 1.0 = normal contrast
+	//	controls.set(controls::Contrast, 1.0);
 	
 	if (params.fps > 0)
 	{
 		int64_t frame_time = 1000000 / params.fps; // in us
 		controls.set(controls::FrameDurationLimits, libcamera::Span<const int64_t, 2>({ frame_time, frame_time }));
 	}
-    //int64_t frame_time = 1000000 / 40;
-    // Set frame rate
-	//controls.set(controls::FrameDurationLimits, { frame_time, frame_time });
-    // Adjust the brightness of the output images, in the range -1.0 to 1.0
-    if (!controls.get(controls::Brightness))
-		controls.set(controls::Brightness, 0.0);
-    // Adjust the contrast of the output image, where 1.0 = normal contrast
-    if (!controls.get(controls::Contrast))
-		controls.set(controls::Contrast, 1.0);
+    
     // Set the exposure time
     //controls.set(controls::ExposureTime, frame_time);
     
-
 	camera->start(&controls);
 	camera2->start(&controls);
 	
 	for (std::unique_ptr<Request> &request : requests)
 		camera->queueRequest(request.get());
 		
-
 	for (std::unique_ptr<Request> &request2 : requests2)
 		camera2->queueRequest(request2.get());
 		
 	// Setup EGL context
-	setupEGL("simple-cam", 1920, 1080);
+	setupEGL("simple-cam", params.prev_x, params.prev_y, params.prev_width, params.prev_height);
 
-	loop.timeout(TIMEOUT_SEC);
-	int ret = loop.exec();
-	std::cout << "Capture ran for " << TIMEOUT_SEC << " seconds and "
+	loop.timeout(params.timeout);
+	int ret = loop.exec(params.prev_width, params.prev_height);
+	std::cout << "Capture ran for " << params.timeout << " seconds and "
 		  << "stopped with exit status: " << ret << std::endl;
 
 	camera->stop();

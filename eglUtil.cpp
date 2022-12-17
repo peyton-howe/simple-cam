@@ -8,11 +8,6 @@
 #include <epoxy/gl.h>
 #include <iostream>
 
-int x_;
-int y_;
-int width_;
-int height_;
-
 EGLDisplay egl_display_;
 EGLSurface egl_surface_;
 EGLContext egl_context_;
@@ -123,7 +118,7 @@ static void gl_setup()
 }
 
 	
-int setupEGL(char const *name, int width, int height)
+int setupEGL(char const *name, int x, int y, int width, int height)
 {
 	
 	display_ = XOpenDisplay(NULL);
@@ -145,13 +140,6 @@ int setupEGL(char const *name, int width, int height)
 	Window root = RootWindow(display_, screen_num);
 	//int screen_width = DisplayWidth(display_, screen_num);
 	//int screen_height = DisplayHeight(display_, screen_num);
-
-	// Default behaviour here is to use a 1024x768 window.
-	if (width == 0 || height == 0)
-	{
-		width = 1024;
-		height = 768;
-	}
 	
     static const EGLint attribs[] =
 		{
@@ -184,14 +172,49 @@ int setupEGL(char const *name, int width, int height)
 	/* XXX this is a bad way to get a borderless window! */
 	mask = CWBackPixel | CWBorderPixel | CWColormap | CWEventMask;
 
-	window_ = XCreateWindow(display_, root, 0, 0, width, height, 0, visinfo->depth, InputOutput, visinfo->visual,
+	window_ = XCreateWindow(display_, root, x, y, width, height, 0, visinfo->depth, InputOutput, visinfo->visual,
 							mask, &attr);
 
+    ///Make the window borderless (but can't move it around)
+	//static const unsigned MWM_HINTS_DECORATIONS = (1 << 1);
+	//static const int PROP_MOTIF_WM_HINTS_ELEMENTS = 5;
+
+	//typedef struct
+	//{
+		//unsigned long flags;
+		//unsigned long functions;
+		//unsigned long decorations;
+		//long inputMode;
+		//unsigned long status;
+	//} PropMotifWmHints;
+
+	//PropMotifWmHints motif_hints;
+	//Atom prop, proptype;
+	//unsigned long flags = 0;
+
+	///* setup the property */
+	//motif_hints.flags = MWM_HINTS_DECORATIONS;
+	//motif_hints.decorations = flags;
+
+	///* get the atom for the property */
+	//prop = XInternAtom(display_, "_MOTIF_WM_HINTS", True);
+
+	///* not sure this is correct, seems to work, XA_WM_HINTS didn't work */
+	//proptype = prop;
+
+	//XChangeProperty(display_, window_, /* display, window */
+					//prop, proptype, /* property, type */
+					//32, /* format: 32-bit datums */
+					//PropModeReplace, /* mode */
+					//(unsigned char *)&motif_hints, /* data */
+					//PROP_MOTIF_WM_HINTS_ELEMENTS /* nelements */
+	//);
+	
 	/* set hints and properties */
 	{
 		XSizeHints sizehints;
-		sizehints.x = width;
-		sizehints.y = height;
+		sizehints.x = x;
+		sizehints.y = y;
 		sizehints.width = width;
 		sizehints.height = height;
 		sizehints.flags = USSize | USPosition;
@@ -290,21 +313,23 @@ void makeBuffer(int fd, libcamera::StreamConfiguration const &info, libcamera::F
 	eglDestroyImageKHR(egl_display_, image);
 }
 
-void displayframe(){
+void displayframe(int width, int height){
 	glClearColor(0, 0, 0, 0);
 	glClear(GL_COLOR_BUFFER_BIT);
 	
+	width = width/2;
+	
 	//Draw camera 1
 	glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName);
-	glViewport(0,0,960,1080);
+	glViewport(0,0,width,height);
 	//glBindFramebuffer(GL_FRAMEBUFFER, 0);    // do i need this?
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 	
 	//Draw camera 2
 	glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName2);
-	glViewport(960,0,960,1080);
+	glViewport(width,0,width,height);
 	//glBindFramebuffer(GL_FRAMEBUFFER, 0);    // do i need this?
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 	
-	EGLBoolean success [[maybe_unused]] = eglSwapBuffers(egl_display_, egl_surface_);
+	eglSwapBuffers(egl_display_, egl_surface_);
 }

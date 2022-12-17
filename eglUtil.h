@@ -12,6 +12,6 @@
 #include <epoxy/egl.h>
 #include <epoxy/gl.h>
 
-int setupEGL(char const *name, int width, int height);
+int setupEGL(char const *name, int x, int y, int width, int height);
 void makeBuffer(int fd, libcamera::StreamConfiguration const &cfg, libcamera::FrameBuffer *buffer, int camera_num);
-void displayframe();
+void displayframe(int width, int height);
