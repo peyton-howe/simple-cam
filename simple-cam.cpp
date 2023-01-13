@@ -30,6 +30,7 @@ struct options
 
 std::unique_ptr<options> options_;
 int cam_exposure_index;
+uint64_t last_timestamp_ = 0;
 
 using namespace libcamera;
 static std::shared_ptr<Camera> camera;
@@ -57,6 +58,18 @@ static void requestComplete2(Request *request)
 
 static void processRequest(Request *request)
 {
+	//float framerate = 0;
+	//auto ts = request->metadata().get(controls::SensorTimestamp);
+	//uint64_t timestamp = ts ? *ts : request->buffers().begin()->second->metadata().timestamp;
+	//if (last_timestamp_ == 0 || last_timestamp_ == timestamp)
+		//framerate = 0;
+	//else
+		//framerate = 1e9 / (timestamp - last_timestamp_);
+	//last_timestamp_ = timestamp;
+	
+	////if (framerate < 55)
+	//std::cout << "Cam1 fps: " << framerate << '\n';
+	
 	const Request::BufferMap &buffers = request->buffers();
 	for (auto bufferPair : buffers) {
 		const Stream *stream = bufferPair.first;
@@ -66,6 +79,8 @@ static void processRequest(Request *request)
 		
 		makeBuffer(fd, cfg, buffer, 1);
 	}
+	
+	//std::cout << "grabbed a frame from camera 1\n";
 
 	/* Re-queue the Request to the camera. */	
 	request->reuse(Request::ReuseBuffers);
@@ -83,6 +98,8 @@ static void processRequest2(Request *request)
 		
 		makeBuffer(fd2, cfg2, buffer2, 2);
 	}
+	
+	//std::cout << "grabbed a frame from camera 2\n";
 	
 	/* Re-queue the Request to the camera. */
 	request->reuse(Request::ReuseBuffers);
@@ -188,12 +205,14 @@ int main(int argc, char **argv)
 	
     Size size(1280, 960);
 	auto area = camera->properties().get(properties::PixelArrayActiveAreas);
-    if (area)
+	if (params.width && params.height) //always have these params so please clean up in future
+		size=Size(params.width, params.height);
+    else if (area)
 	{
 		// The idea here is that most sensors will have a 2x2 binned mode that
 		// we can pick up. 
 		size = (*area)[0].size() / 2;
-		size = size.boundedToAspectRatio(Size(params.width, params.height));
+		//size = size.boundedToAspectRatio(Size(params.width, params.height));
 		size.alignDownTo(2, 2); // YUV420 will want to be even
 		std::cout << "Viewfinder size chosen is " << size.toString() << std::endl;
 	}
