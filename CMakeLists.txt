@@ -38,16 +38,26 @@ message(STATUS "    version: ${EPOXY_VERSION}")
 message(STATUS "    libraries: ${EPOXY_LINK_LIBRARIES}")
 message(STATUS "    include path: ${EPOXY_INCLUDE_DIRS}")
 
-pkg_check_modules(LIBDRM QUIET libdrm)
-message(STATUS "LIBDRM_LINK_LIBRARIES=${LIBDRM_LINK_LIBRARIES}")
-message(STATUS "LIBDRM display mode enabled")
+pkg_check_modules(LIBGBM QUIET gbm)
+message(STATUS "LIBGBM library found:")
+message(STATUS "    version: ${LIBGBM_VERSION}")
+message(STATUS "    libraries: ${LIBGBM_LINK_LIBRARIES}")
+message(STATUS "    include path: ${LIBGBM_INCLUDE_DIRS}")
+
+pkg_check_modules(LIBDRM REQUIRED IMPORTED_TARGET libdrm)
+#message(STATUS "LIBDRM_LINK_LIBRARIES=${LIBDRM_LINK_LIBRARIES}")
+message(STATUS "LIBDRM library found")
+message(STATUS "    version: ${LIBDRM_VERSION}")
+message(STATUS "    libraries: ${LIBDRM_LINK_LIBRARIES}")
+message(STATUS "    include path: ${LIBDRM_INCLUDE_DIRS}")
 
 include_directories(${CMAKE_SOURCE_DIR} ${LIBCAMERA_INCLUDE_DIRS} ${LIBEVENT_INCLUDE_DIRS} ${LIBDRM_INCLUDE_DIRS}) 
-set(TARGET_LIBS ${TARGET_LIBS} ${X11_LIBRARIES} ${EPOXY_LIBRARIES} ${LIBDRM_LIBRARIES})
+set(TARGET_LIBS ${TARGET_LIBS} ${X11_LIBRARIES} ${EPOXY_LIBRARIES} ${LIBGBM_LIBRARIES})
 
-add_executable(simple-cam event_loop.cpp eglUtil.cpp simple-cam.cpp) 
+add_executable(simple-cam event_loop.cpp drmEglUtil.cpp simple-cam.cpp) 
 
 target_link_libraries(simple-cam PkgConfig::LIBEVENT)
 target_link_libraries(simple-cam PkgConfig::LIBCAMERA)
+target_link_libraries(simple-cam PkgConfig::LIBDRM)
 target_link_libraries(simple-cam ${TARGET_LIBS})
 

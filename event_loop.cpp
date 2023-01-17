@@ -6,7 +6,7 @@
  */
 
 #include "event_loop.h"
-#include "eglUtil.h"
+#include "drmEglUtil.h"
 
 #include <assert.h>
 #include <event2/event.h>

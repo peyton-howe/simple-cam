@@ -12,7 +12,7 @@
 #include <boost/lexical_cast.hpp>
 
 #include "event_loop.h"
-#include "eglUtil.h"
+#include "drmEglUtil.h"
 
 
 struct options
@@ -389,6 +389,7 @@ int main(int argc, char **argv)
 	cm->stop();
 	requests.clear();
 	requests2.clear();
+	exit_drm();
 
 	return EXIT_SUCCESS;
 }
