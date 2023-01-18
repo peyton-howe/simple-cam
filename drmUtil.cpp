@@ -48,18 +48,13 @@ drmModeCrtc *crtc;
 
 gbm_device *gbm_dev_;
 gbm_surface *gbm_surface_;
-//gbm_bo *bo;
 
 EGLConfig *egl_config_;
-
-//EGLint egl_major, egl_minor, num_configs;
 EGLint num_configs;
-//EGLint vid;
-//GLuint vertex_shader, fragment_shader;
-GLint ret;
 
 static struct gbm_bo *previousBo = NULL;
 static uint32_t previousFb;
+#define ERRSTR strerror(errno)
 
 static GLint compile_shader(GLenum target, const char *source)
 {
@@ -180,35 +175,111 @@ if (connector->encoder_id)
 
 static int matchConfigToVisual(EGLDisplay display, EGLint visualId, EGLConfig *configs, int count)
 {
-EGLint id;
+    EGLint id;
+    EGLint blue_size, red_size, green_size, alpha_size;
     for (int i = 0; i < count; ++i)
     {
         if (!eglGetConfigAttrib(display, configs[i], EGL_NATIVE_VISUAL_ID, &id))
             continue;
         if (id == visualId)
             return i;
+	    
+	eglGetConfigAttrib(egl_display_, configs[i], EGL_RED_SIZE, &red_size);
+        eglGetConfigAttrib(egl_display_, configs[i], EGL_GREEN_SIZE, &green_size);
+        eglGetConfigAttrib(egl_display_, configs[i], EGL_BLUE_SIZE, &blue_size);
+        eglGetConfigAttrib(egl_display_, configs[i], EGL_ALPHA_SIZE, &alpha_size);	
+        
+        char gbm_format_str[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+        memcpy(gbm_format_str, &id, sizeof(EGLint));
+        printf("  %d-th GBM format: %s;  sizes(RGBA) = %d,%d,%d,%d,\n",
+               i, gbm_format_str, red_size, green_size, blue_size, alpha_size); 
     }
-return -1;
+    return -1;
+}
+
+void findPlane()
+{
+	drmModePlaneResPtr planes;
+	drmModePlanePtr plane;
+	unsigned int i;
+	unsigned int j;
+
+	planes = drmModeGetPlaneResources(drmfd_);
+	if (!planes)
+		throw std::runtime_error("drmModeGetPlaneResources failed: " + std::string(ERRSTR));
+
+	try
+	{
+		for (i = 0; i < planes->count_planes; ++i)
+		{
+			plane = drmModeGetPlane(drmfd_, planes->planes[i]);
+			if (!planes)
+				throw std::runtime_error("drmModeGetPlane failed: " + std::string(ERRSTR));
+
+			if (!(plane->possible_crtcs & (1 << crtcIdx_)))
+			{
+				drmModeFreePlane(plane);
+				continue;
+			}
+
+			for (j = 0; j < plane->count_formats; ++j)
+			{
+				if (plane->formats[j] == GBM_FORMAT_XRGB8888)
+				{
+					break;
+				}
+			}
+
+			if (j == plane->count_formats)
+			{
+				drmModeFreePlane(plane);
+				continue;
+			}
+
+			planeId_ = plane->plane_id;
+
+			drmModeFreePlane(plane);
+			break;
+		}
+	}
+	catch (std::exception const &e)
+	{
+		drmModeFreePlaneResources(planes);
+		throw;
+	}
+
+	drmModeFreePlaneResources(planes);
 }
 
 static void gbmSwapBuffers(EGLDisplay *display, EGLSurface *surface)
 {
-    eglSwapBuffers(*display, *surface);
-    struct gbm_bo *bo = gbm_surface_lock_front_buffer(gbm_surface_);
-    uint32_t handle = gbm_bo_get_handle(bo).u32;
-    uint32_t pitch = gbm_bo_get_stride(bo);
-    uint32_t fb;
-
-	drmModeAddFB(drmfd_, drm_mode_.hdisplay, drm_mode_.vdisplay, 24, 32, pitch, handle, &fb);
-    drmModeSetCrtc(drmfd_, crtc->crtc_id, fb, 0, 0, &conId_, 1, &drm_mode_);
-		
-    if (previousBo)
-    {
-        drmModeRmFB(drmfd_, previousFb);
-        gbm_surface_release_buffer(gbm_surface_, previousBo);
-    }
-    previousBo = bo;
-    previousFb = fb;
+	eglSwapBuffers(*display, *surface);
+	struct gbm_bo *bo = gbm_surface_lock_front_buffer(gbm_surface_);
+	uint32_t handle = gbm_bo_get_handle(bo).u32;
+	uint32_t pitch = gbm_bo_get_stride(bo);
+	uint32_t fb;
+	
+	uint32_t offsets[4] =
+		{ 0, pitch * drm_mode_.vdisplay, pitch * drm_mode_.vdisplay + (pitch / 2) * (drm_mode_.vdisplay / 2) };
+	uint32_t pitches[4] = { pitch, pitch / 2, pitch / 2 };
+	uint32_t handles[4] = { handle, handle, handle };
+	
+	//drmModeAddFB(drmfd_, drm_mode_.hdisplay, drm_mode_.vdisplay, 24, 32, pitch, handle, &fb);
+	drmModeAddFB2(drmfd_, drm_mode_.hdisplay, drm_mode_.vdisplay, GBM_FORMAT_XRGB8888,
+	              handles, pitches, offsets, &fb, 0);
+	drmModeSetCrtc(drmfd_, crtc->crtc_id, fb, 0, 0, &conId_, 1, &drm_mode_);
+	
+	//if (drmModeSetPlane(drmfd_, planeId_, crtcId_, fb, 0, 0, 0, drm_mode_.hdisplay, drm_mode_.vdisplay, 0, 0,
+						//drm_mode_.hdisplay << 16, drm_mode_.vdisplay << 16))
+		//throw std::runtime_error("drmModeSetPlane failed: " + std::string(ERRSTR));
+				
+	if (previousBo)
+	{
+		drmModeRmFB(drmfd_, previousFb);
+		gbm_surface_release_buffer(gbm_surface_, previousBo);
+	}
+	previousBo = bo;
+	previousFb = fb;
 }
 
 static void gbmClean()
@@ -255,7 +326,7 @@ static int init_EGL(void)
 	//printf("Using display %p with EGL version %d.%d\n", egl_display_, major, minor);
 	//printf("EGL Version \"%s\"\n", eglQueryString(egl_display_, EGL_VERSION));
 	//printf("EGL Vendor \"%s\"\n", eglQueryString(egl_display_, EGL_VENDOR));
-	//printf("EGL Extensions \"%s\"\n", eglQueryString(egl_display_, EGL_EXTENSIONS));
+	printf("EGL Extensions \"%s\"\n", eglQueryString(egl_display_, EGL_EXTENSIONS));
 
 	if (!eglBindAPI(EGL_OPENGL_ES_API))
 		throw std::runtime_error("failed to bind api EGL_OPENGL_ES_API\n");
@@ -268,7 +339,7 @@ static int init_EGL(void)
 	if (!eglChooseConfig(egl_display_, config_attribs, egl_config_, num_configs, &num_configs))
 		throw std::runtime_error("couldn't get an EGL visual config");
 		
-	int configIndex = matchConfigToVisual(egl_display_, GBM_FORMAT_ARGB8888, egl_config_, num_configs);
+	int configIndex = matchConfigToVisual(egl_display_, GBM_FORMAT_XRGB8888, egl_config_, num_configs);
 	if (configIndex < 0){
 		eglTerminate(egl_display_);
 		gbm_surface_destroy(gbm_surface_);
@@ -307,24 +378,24 @@ static int init_EGL(void)
 	//printf("GL Extensions: \"%s\"\n", glGetString(GL_EXTENSIONS));
 	eglMakeCurrent(egl_display_, egl_surface_, egl_surface_, egl_context_);
 
-	glViewport(0, 0, 1920, 1080);
+	glViewport(0, 0, drm_mode_.hdisplay, drm_mode_.vdisplay);
 	return 0;
 }
 
 int setupEGL(char const *name, int x, int y, int width, int height)
 {	
 	//drmfd_ = drmOpen("vc4", NULL);
-	// we have to try card0 and card1 to see which is valid. fopen will work on both, so...
-    drmfd_ = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
+	//we have to try card0 and card1 to see which is valid. fopen will work on both, so...
+	drmfd_ = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
     
-    if ((drm_resources_ = drmModeGetResources(drmfd_)) == NULL) // if we have the right device we can get it's resources
-        {
-        std::cout << "/dev/dri/card0 does not have DRM resources, using card1\n";
-        drmfd_ = open("/dev/dri/card1", O_RDWR | O_CLOEXEC); // if not, try the other one: (1)
-        drm_resources_ = drmModeGetResources(drmfd_);
-        }
-    else
-      std::cout << "using /dev/dri/card0\n";
+	if ((drm_resources_ = drmModeGetResources(drmfd_)) == NULL) // if we have the right device we can get it's resources
+		{
+		std::cout << "/dev/dri/card0 does not have DRM resources, using card1\n";
+		drmfd_ = open("/dev/dri/card1", O_RDWR | O_CLOEXEC); // if not, try the other one: (1)
+		drm_resources_ = drmModeGetResources(drmfd_);
+		}
+	else
+		std::cout << "using /dev/dri/card0\n";
 
 
 	if (!drmIsMaster(drmfd_))
@@ -341,24 +412,46 @@ int setupEGL(char const *name, int x, int y, int width, int height)
 	for (int i = 0; i < drm_connector_->count_modes; i++) {
 		drm_mode_ = drm_connector_->modes[i];
 		printf("resolution: %ix%i %i\n", drm_mode_.hdisplay, drm_mode_.vdisplay, drm_mode_.vrefresh);
+		if (drm_mode_.hdisplay == 1920 && drm_mode_.vdisplay == 1080 && drm_mode_.vrefresh == 60) //set display to 1080p 60Hz
+			break;
 	}
-	drm_mode_ = drm_connector_->modes[6]; // array of resolutions and refresh rates supported by this display
-    printf("resolution: %ix%i\n", drm_mode_.hdisplay, drm_mode_.vdisplay);
+	//drm_mode_ = drm_connector_->modes[0]; // array of resolutions and refresh rates supported by this display
+	printf("resolution: %ix%i\n", drm_mode_.hdisplay, drm_mode_.vdisplay);
 		
 	drm_encoder_ = findEncoder(drm_connector_);
-    if (drm_encoder_ == NULL)
-    {
-        drmModeFreeConnector(drm_connector_);
-        drmModeFreeResources(drm_resources_);
-        throw std::runtime_error("Unable to get encoder\n");
-    }
+	if (drm_encoder_ == NULL)
+	{
+		drmModeFreeConnector(drm_connector_);
+		drmModeFreeResources(drm_resources_);
+		throw std::runtime_error("Unable to get encoder\n");
+	}
 	
 	crtc = drmModeGetCrtc(drmfd_, drm_encoder_->crtc_id);
-    drmModeFreeEncoder(drm_encoder_);
-    drmModeFreeConnector(drm_connector_);
-    drmModeFreeResources(drm_resources_);
-    gbm_dev_ = gbm_create_device(drmfd_);
-    gbm_surface_ = gbm_surface_create(gbm_dev_, drm_mode_.hdisplay, drm_mode_.vdisplay, GBM_FORMAT_ARGB8888, GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
+	crtcId_ = crtc->crtc_id;
+	if (drm_resources_->count_crtcs <= 0)
+		throw std::runtime_error("drm: no crts");
+	crtcIdx_ = -1;
+	for (int i = 0; i < drm_resources_->count_crtcs; ++i)
+	{
+		if (crtcId_ == drm_resources_->crtcs[i])
+		{
+			crtcIdx_ = i;
+			break;
+		}
+	}
+	if (crtcIdx_ == -1)
+	{
+		drmModeFreeResources(drm_resources_);
+		throw std::runtime_error("drm: CRTC " + std::to_string(crtcId_) + " not found");
+	}
+
+	findPlane();
+	
+	drmModeFreeEncoder(drm_encoder_);
+	drmModeFreeConnector(drm_connector_);
+	drmModeFreeResources(drm_resources_);
+	gbm_dev_ = gbm_create_device(drmfd_);
+	gbm_surface_ = gbm_surface_create(gbm_dev_, drm_mode_.hdisplay, drm_mode_.vdisplay, GBM_FORMAT_ARGB8888, GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
 			
 	if (!gbm_surface_)
 		throw std::runtime_error("failed to create gbm surface\n");
@@ -366,7 +459,7 @@ int setupEGL(char const *name, int x, int y, int width, int height)
 	init_EGL();
 	
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	//eglSwapBuffers(egl_display_, egl_surface_);
 	//bo = gbm_surface_lock_front_buffer(gbm_surface_);
 	//std::cout << "im here\n";
@@ -438,8 +531,8 @@ void makeBuffer(int fd, libcamera::StreamConfiguration const &info, libcamera::F
 
 void displayframe(int width, int height)
 {
-	//glClearColor(100, 100, 100, 100);
-	//glClear(GL_COLOR_BUFFER_BIT);
+	glClearColor(0, 0, 0, 0);
+	glClear(GL_COLOR_BUFFER_BIT);
 	
 	width = width/2;
 	
@@ -462,10 +555,10 @@ void displayframe(int width, int height)
 void exit_drm(void)
 {
 	eglDestroyContext(egl_display_, egl_context_);
-    eglDestroySurface(egl_display_, egl_surface_);
-    eglTerminate(egl_display_);
-    gbmClean();
+	eglDestroySurface(egl_display_, egl_surface_);
+	eglTerminate(egl_display_);
+	gbmClean();
 
-    close(drmfd_);
+	close(drmfd_);
 }
 
