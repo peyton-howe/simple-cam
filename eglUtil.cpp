@@ -8,22 +8,14 @@
 #include <epoxy/gl.h>
 #include <iostream>
 
-EGLDisplay egl_display_;
-EGLSurface egl_surface_;
-EGLContext egl_context_;
-
-EGLint egl_major, egl_minor;
-EGLint vid;
-	
+//X11 Specific Stuff
 Display *display_;
 Atom wm_delete_window_;
 Window window_;
 
 bool first_time_ = true;
-
-GLuint FramebufferName;
-GLuint FramebufferName2;
-
+EGLUtil egl;
+	
 static GLint compile_shader(GLenum target, const char *source)
 {
 	GLuint s = glCreateShader(target);
@@ -78,7 +70,7 @@ static GLint link_program(GLint vs, GLint fs)
 	return prog;
 }
 
-static void gl_setup()
+void gl_setup()
 {
 	float w_factor = 1920 / (float)1920;
 	float h_factor = 1080 / (float)1080;
@@ -113,8 +105,8 @@ static void gl_setup()
 	static const float verts[] = { -w_factor, -h_factor, w_factor, -h_factor, w_factor, h_factor, -w_factor, h_factor };
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, verts);
 	glEnableVertexAttribArray(0);
-	glGenTextures(1, &FramebufferName);
-	glGenTextures(1, &FramebufferName2);
+	glGenTextures(1, &egl.FramebufferName);
+	glGenTextures(1, &egl.FramebufferName2);
 }
 
 	
@@ -125,13 +117,11 @@ int setupEGL(char const *name, int x, int y, int width, int height)
 	if (!display_)
 		printf("Couldn't open X display");
 
-	egl_display_ = eglGetDisplay(display_);
-	if (!egl_display_)
+	egl.display = eglGetDisplay(display_);
+	if (!egl.display)
 		printf("eglGetDisplay() failed");
 
-	EGLint egl_major, egl_minor;
-
-	if (!eglInitialize(egl_display_, &egl_major, &egl_minor))
+	if (!eglInitialize(egl.display, &egl.major, &egl.minor))
 		printf("eglInitialize() failed");
 	
 	int screen_num = DefaultScreen(display_);
@@ -141,26 +131,23 @@ int setupEGL(char const *name, int x, int y, int width, int height)
 	//int screen_width = DisplayWidth(display_, screen_num);
 	//int screen_height = DisplayHeight(display_, screen_num);
 	
-    static const EGLint attribs[] =
-		{
-			EGL_RED_SIZE, 1,
-			EGL_GREEN_SIZE, 1,
-			EGL_BLUE_SIZE, 1,
-			EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-			EGL_NONE
-		};
+    //static const EGLint attribs[] =
+		//{
+			//EGL_RED_SIZE, 1,
+			//EGL_GREEN_SIZE, 1,
+			//EGL_BLUE_SIZE, 1,
+			//EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+			//EGL_NONE
+		//};
 		
-	EGLConfig config;
-	EGLint num_configs;
-	if (!eglChooseConfig(egl_display_, attribs, &config, 1, &num_configs))
+	if (!eglChooseConfig(egl.display, conf_attribs, egl.config, 1, &egl.num_configs))
 		printf("couldn't get an EGL visual config");
 
-	EGLint vid;
-	if (!eglGetConfigAttrib(egl_display_, config, EGL_NATIVE_VISUAL_ID, &vid))
+	if (!eglGetConfigAttrib(egl.display, egl.config, EGL_NATIVE_VISUAL_ID, &egl.vid))
 		printf("eglGetConfigAttrib() failed\n");
 	
 	XVisualInfo visTemplate = {};
-	visTemplate.visualid = (VisualID)vid;
+	visTemplate.visualid = (VisualID)egl.vid;
 	int num_visuals;
 	XVisualInfo *visinfo = XGetVisualInfo(display_, VisualIDMask, &visTemplate, &num_visuals);
 
@@ -224,14 +211,14 @@ int setupEGL(char const *name, int x, int y, int width, int height)
 				
 	eglBindAPI(EGL_OPENGL_ES_API);
 
-	static const EGLint ctx_attribs[] = {
-		EGL_CONTEXT_CLIENT_VERSION, 2,
-		EGL_NONE
-	};
+	//static const EGLint ctx_attribs[] = {
+		//EGL_CONTEXT_CLIENT_VERSION, 2,
+		//EGL_NONE
+	//};
 	
-	egl_context_ = eglCreateContext(egl_display_, config, EGL_NO_CONTEXT, ctx_attribs);
+	egl.context = eglCreateContext(egl.display, egl.config, EGL_NO_CONTEXT, ctx_attribs);
 	
-	if (!egl_context_)
+	if (!egl.context)
 		printf("eglCreateContext failed\n");
 		
     XFree(visinfo);
@@ -242,18 +229,18 @@ int setupEGL(char const *name, int x, int y, int width, int height)
 	wm_delete_window_ = XInternAtom(display_, "WM_DELETE_WINDOW", False);
 	XSetWMProtocols(display_, window_, &wm_delete_window_, 1);
 
-	egl_surface_ = eglCreateWindowSurface(egl_display_, config, reinterpret_cast<EGLNativeWindowType>(window_), NULL);
-	if (!egl_surface_)
+	egl.surface = eglCreateWindowSurface(egl.display, egl.config, reinterpret_cast<EGLNativeWindowType>(window_), NULL);
+	if (!egl.surface)
 		printf("eglCreateWindowSurface failed\n");
 
 	// We have to do eglMakeCurrent in the thread where it will run, but we must do it
 	// here temporarily so as to get the maximum texture size.
-	eglMakeCurrent(egl_display_, EGL_NO_SURFACE, EGL_NO_SURFACE, egl_context_);
+	eglMakeCurrent(egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, egl.context);
 	int max_texture_size = 0;
 	glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_texture_size);
 	//max_image_width_ = max_image_height_ = max_texture_size;
 	// This "undoes" the previous eglMakeCurrent.
-	eglMakeCurrent(egl_display_, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+	eglMakeCurrent(egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 	
 	
 	return 0;
@@ -264,7 +251,7 @@ void makeBuffer(int fd, libcamera::StreamConfiguration const &info, libcamera::F
 	if (first_time_)
 	{
 		// This stuff has to be delayed until we know we're in the thread doing the display.
-		if (!eglMakeCurrent(egl_display_, egl_surface_, egl_surface_, egl_context_))
+		if (!eglMakeCurrent(egl.display, egl.surface, egl.surface, egl.context))
 			throw std::runtime_error("eglMakeCurrent failed");
 		gl_setup();
 		first_time_ = false;
@@ -288,7 +275,7 @@ void makeBuffer(int fd, libcamera::StreamConfiguration const &info, libcamera::F
 		EGL_NONE
 	};
 
-	EGLImage image = eglCreateImageKHR(egl_display_, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, NULL, attribs);
+	EGLImage image = eglCreateImageKHR(egl.display, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, NULL, attribs);
 	if (!image)
 		throw std::runtime_error("failed to import fd " + std::to_string(fd));
 
@@ -297,39 +284,39 @@ void makeBuffer(int fd, libcamera::StreamConfiguration const &info, libcamera::F
 		//	glDeleteTextures(1, &FramebufferName);
 		//glDeleteTextures(1, &FramebufferName);
 		//glGenTextures(1, &FramebufferName);
-		glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName);
+		glBindTexture(GL_TEXTURE_EXTERNAL_OES, egl.FramebufferName);
 	}else if (camera_num == 2){
 		//if (glIsTexture(FramebufferName2))
 		//	glDeleteTextures(1, &FramebufferName2);
 		//glDeleteTextures(1, &FramebufferName2);
 		//glGenTextures(1, &FramebufferName2);
-		glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName2);
+		glBindTexture(GL_TEXTURE_EXTERNAL_OES, egl.FramebufferName2);
 	}
 	
 	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, image);
 
-	eglDestroyImageKHR(egl_display_, image);
+	eglDestroyImageKHR(egl.display, image);
 }
 
-void displayframe(int width, int height){
+void displayEGL(int width, int height){
 	glClearColor(0, 0, 0, 0);
 	glClear(GL_COLOR_BUFFER_BIT);
 	
 	width = width/2;
 	
 	//Draw camera 1
-	glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName);
+	glBindTexture(GL_TEXTURE_EXTERNAL_OES, egl.FramebufferName);
 	glViewport(0,0,width,height);
 	//glBindFramebuffer(GL_FRAMEBUFFER, 0);    // do i need this?
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 	
 	//Draw camera 2
-	glBindTexture(GL_TEXTURE_EXTERNAL_OES, FramebufferName2);
+	glBindTexture(GL_TEXTURE_EXTERNAL_OES, egl.FramebufferName2);
 	glViewport(width,0,width,height);
 	//glBindFramebuffer(GL_FRAMEBUFFER, 0);    // do i need this?
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 	
-	eglSwapBuffers(egl_display_, egl_surface_);
+	eglSwapBuffers(egl.display, egl.surface);
 }

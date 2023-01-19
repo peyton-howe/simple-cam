@@ -12,7 +12,8 @@
 #include <boost/lexical_cast.hpp>
 
 #include "event_loop.h"
-#include "drmEglUtil.h"
+#include "eglUtil.h"
+#include "drmUtil.h"
 
 
 struct options
@@ -77,7 +78,7 @@ static void processRequest(Request *request)
 		StreamConfiguration const &cfg = stream->configuration();
 		int fd = buffer->planes()[0].fd.get();
 		
-		makeBuffer(fd, cfg, buffer, 1);
+		makeBufferDRM(fd, cfg, buffer, 1);
 	}
 	
 	//std::cout << "grabbed a frame from camera 1\n";
@@ -96,7 +97,7 @@ static void processRequest2(Request *request)
 		StreamConfiguration const &cfg2 = stream->configuration();
 		int fd2 = buffer2->planes()[0].fd.get();
 		
-		makeBuffer(fd2, cfg2, buffer2, 2);
+		makeBufferDRM(fd2, cfg2, buffer2, 2);
 	}
 	
 	//std::cout << "grabbed a frame from camera 2\n";
@@ -369,7 +370,7 @@ int main(int argc, char **argv)
 		camera2->queueRequest(request2.get());
 		
 	// Setup EGL context
-	setupEGL("simple-cam", params.prev_x, params.prev_y, params.prev_width, params.prev_height);
+	setupDRM("simple-cam", params.prev_x, params.prev_y, params.prev_width, params.prev_height);
 
 	loop.timeout(params.timeout);
 	int ret = loop.exec(params.prev_width, params.prev_height);

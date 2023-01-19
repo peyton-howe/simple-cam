@@ -6,7 +6,8 @@
  */
 
 #include "event_loop.h"
-#include "drmEglUtil.h"
+#include "eglUtil.h"
+#include "drmUtil.h"
 
 #include <assert.h>
 #include <event2/event.h>
@@ -52,7 +53,7 @@ int EventLoop::exec(int width, int height)
 			//std::cout << "here doing stuff \n";
 			dispatchCalls();
 			event_base_loop(event_, EVLOOP_NO_EXIT_ON_EMPTY);
-			displayframe(width, height);
+			displayDRM(width, height);
 			nFrames++;
 			if (nFrames % 160 == 0)
 			{ // Log FPS
@@ -63,7 +64,6 @@ int EventLoop::exec(int width, int height)
 				int frames = (nFrames - lastFrames);
 				lastFrames = nFrames;
 				float fps = frames / elapsedS;
-				//int droppedFrames = 0;
 				printf("%d frames over %.2fs (%.1ffps)! \n", frames, elapsedS, fps);
 				printf("%d dropped frames over %.2fs! \n", droppedFrames, elapsedS);
 				droppedFrames = 0;
