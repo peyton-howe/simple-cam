@@ -12,16 +12,15 @@
 #include <boost/lexical_cast.hpp>
 
 #include "event_loop.h"
-#include "eglUtil.h"
-#include "drmUtil.h"
+#include "preview.h"
 
 
 struct options
 {
-	std::string render_mode;
+	int dual_cameras;
 	unsigned int width;
 	unsigned int height;
-	unsigned int  prev_x, prev_y, prev_width, prev_height;
+	unsigned int prev_x, prev_y, prev_width, prev_height;
 	float fps;
 	float shutterSpeed;
 	std::string exposure;
@@ -78,7 +77,7 @@ static void processRequest(Request *request)
 		StreamConfiguration const &cfg = stream->configuration();
 		int fd = buffer->planes()[0].fd.get();
 		
-		makeBufferDRM(fd, cfg, buffer, 1);
+		makeBuffer(fd, cfg, buffer, 1);
 	}
 	
 	//std::cout << "grabbed a frame from camera 1\n";
@@ -97,7 +96,7 @@ static void processRequest2(Request *request)
 		StreamConfiguration const &cfg2 = stream->configuration();
 		int fd2 = buffer2->planes()[0].fd.get();
 		
-		makeBufferDRM(fd2, cfg2, buffer2, 2);
+		makeBuffer(fd2, cfg2, buffer2, 2);
 	}
 	
 	//std::cout << "grabbed a frame from camera 2\n";
@@ -110,9 +109,9 @@ static void processRequest2(Request *request)
 int main(int argc, char **argv)
 {
 	options params = {
-		.render_mode = "EGL",
-		.width = 1280, //default
-		.height = 960, //default
+		.dual_cameras = 1,
+		.width = 0, //default
+		.height = 0, //default
 		.prev_x = 0, 
 		.prev_y = 0, 
 		.prev_width = 1920, 
@@ -129,10 +128,8 @@ int main(int argc, char **argv)
 	{
 		switch (arg)
 		{
-			case 'r':
-				if (strcmp(optarg, "DRM") == 0) params.render_mode = "DRM";
-				else if (strcmp(optarg, "EGL") == 0) params.render_mode = "EGL";
-				else printf("Unkown render mode, defaulting to EGL\n");
+			case 'd':
+				params.dual_cameras = std::stoi(optarg);
 				break;
 			case 'w':
 				params.width = std::stoi(optarg);
@@ -161,13 +158,13 @@ int main(int argc, char **argv)
 				params.timeout = std::stoi(optarg);
 				break;
 			default:
-				printf("Usage: %s [-r render_mode] [-w width] [-h height] [-p x,y,width,height][-f fps] [-s shutter-speed-ns] [-e exposure] [-t timeout] \n", argv[0]);
+				printf("Usage: %s [-d dual cameras] [-w width] [-h height] [-p x,y,width,height][-f fps] [-s shutter-speed-ns] [-e exposure] [-t timeout] \n", argv[0]);
 				break;
 		}
 	}
 	
 	if (arg < 1)
-		printf("Usage: %s [-r render_mode] [-w width] [-h height] [-p width,height,x_off,y_off][-f fps] [-s shutter-speed-ns] [-e exposure] [-t timeout] \n", argv[0]);
+		printf("Usage: %s [-d dual cameras] [-w width] [-h height] [-p width,height,x_off,y_off][-f fps] [-s shutter-speed-ns] [-e exposure] [-t timeout] \n", argv[0]);
 	
 	std::unique_ptr<CameraManager> cm = std::make_unique<CameraManager>();
 	cm->start();
@@ -206,7 +203,7 @@ int main(int argc, char **argv)
 	
     Size size(1280, 960);
 	auto area = camera->properties().get(properties::PixelArrayActiveAreas);
-	if (params.width && params.height) //always have these params so please clean up in future
+	if (params.width != 0 && params.height != 0) //width and height were input
 		size=Size(params.width, params.height);
     else if (area)
 	{
@@ -370,7 +367,7 @@ int main(int argc, char **argv)
 		camera2->queueRequest(request2.get());
 		
 	// Setup EGL context
-	setupDRM("simple-cam", params.prev_x, params.prev_y, params.prev_width, params.prev_height);
+	makeWindow("simple-cam", params.prev_x, params.prev_y, params.prev_width, params.prev_height);
 
 	loop.timeout(params.timeout);
 	int ret = loop.exec(params.prev_width, params.prev_height);
@@ -390,7 +387,7 @@ int main(int argc, char **argv)
 	cm->stop();
 	requests.clear();
 	requests2.clear();
-	exit_drm();
+	cleanup();
 
 	return EXIT_SUCCESS;
 }

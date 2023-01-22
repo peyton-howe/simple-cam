@@ -54,7 +54,7 @@ message(STATUS "    include path: ${LIBDRM_INCLUDE_DIRS}")
 include_directories(${CMAKE_SOURCE_DIR} ${LIBCAMERA_INCLUDE_DIRS} ${LIBEVENT_INCLUDE_DIRS} ${LIBDRM_INCLUDE_DIRS}) 
 set(TARGET_LIBS ${TARGET_LIBS} ${X11_LIBRARIES} ${EPOXY_LIBRARIES} ${LIBGBM_LIBRARIES})
 
-add_executable(simple-cam event_loop.cpp eglUtil.cpp drmUtil.cpp simple-cam.cpp) 
+add_executable(simple-cam event_loop.cpp preview.cpp simple-cam.cpp) 
 
 target_link_libraries(simple-cam PkgConfig::LIBEVENT)
 target_link_libraries(simple-cam PkgConfig::LIBCAMERA)
