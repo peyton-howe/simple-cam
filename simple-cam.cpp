@@ -370,7 +370,7 @@ int main(int argc, char **argv)
 	makeWindow("simple-cam", params.prev_x, params.prev_y, params.prev_width, params.prev_height);
 
 	loop.timeout(params.timeout);
-	int ret = loop.exec(params.prev_width, params.prev_height);
+	int ret = loop.exec(params.prev_width, params.prev_height, params.timeout);
 	std::cout << "Capture ran for " << params.timeout << " seconds and "
 		  << "stopped with exit status: " << ret << std::endl;
 

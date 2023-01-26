@@ -129,7 +129,12 @@ void gl_setup()
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, verts);
 	glEnableVertexAttribArray(0);
 	glGenTextures(1, &egl.FramebufferName);
+	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glGenTextures(1, &egl.FramebufferName2);
+	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	
 }
 
 static drmModeConnector *getConnector(drmModeRes *resources)
@@ -537,8 +542,8 @@ void makeBuffer(int fd, libcamera::StreamConfiguration const &info, libcamera::F
 		glBindTexture(GL_TEXTURE_EXTERNAL_OES, egl.FramebufferName2);
 	}
 	
-	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	//glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	//glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, image);
 
 	eglDestroyImageKHR(egl.display, image);
@@ -596,6 +601,8 @@ void displayFrame(int width, int height)
 	eglSwapBuffers(egl.display, egl.surface);
 	if (display_mode == "DRM")
 		gbmSwapBuffers();
+		
+	//std::cout << "displayed frame\n";
 }
 
 void gbmClean()

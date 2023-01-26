@@ -33,25 +33,32 @@ EventLoop::~EventLoop()
 	libevent_global_shutdown();
 }
 
-int EventLoop::exec(int width, int height)
+int EventLoop::exec(int width, int height, int timeout)
 {
 	exitCode_ = -1;
 	exit_.store(false, std::memory_order_release);
-	auto lastTime = std::chrono::high_resolution_clock::now();
+	auto start_time = std::chrono::high_resolution_clock::now();
+	auto lastTime = start_time;
 	int nFrames = 0;
 	int lastFrames = 0;
 	int droppedFrames = 0;
 
-	while (!exit_.load(std::memory_order_acquire)) {
+	//while (!exit_.load(std::memory_order_acquire)) {
+	while(1) {
+		auto now = std::chrono::high_resolution_clock::now();
+		if (timeout > 0 && now - start_time > std::chrono::milliseconds(timeout*1000))
+			break;
 		//std::cout << calls_.size() << '\n';
-		if (calls_.size() % 2 == 0) {
+		if ((calls_.size() % 2 == 0) && (calls_.size() > 0)) {
 			if (calls_.size() > 2)
 				droppedFrames++;
+				
+			//std::cout << "calls_ size: " << calls_.size() << '\n';
 			
 			//std::cout << "displaying frames \n";
 			//std::cout << "here doing stuff \n";
 			dispatchCalls();
-			event_base_loop(event_, EVLOOP_NO_EXIT_ON_EMPTY);
+			//event_base_loop(event_, EVLOOP_NO_EXIT_ON_EMPTY);
 			displayFrame(width, height);
 			nFrames++;
 			if (nFrames % 160 == 0)
