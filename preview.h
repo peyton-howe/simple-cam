@@ -17,6 +17,9 @@
 #include <epoxy/egl.h>
 #include <epoxy/gl.h>
 
+#include <vector>
+#include <math.h>
+
 struct EGLUtil
 {
 	EGLDisplay display;
@@ -77,6 +80,40 @@ struct GBMUtil
 	gbm_bo *previousBo = NULL;
 	uint32_t previousFb;
 };
+
+typedef enum VertexType
+{
+	NONE = 0,
+	POS = 1,
+	COL = 2,
+	TEX = 4,
+	NRM = 8,
+} VertexType;
+
+inline VertexType operator | (VertexType a, VertexType b)
+{
+	return static_cast<VertexType>(static_cast<int>(a) | static_cast<int>(b));
+}
+inline unsigned int PackedFloats (VertexType type)
+{
+	unsigned int val = 0;
+	if ((type & POS) != 0) val += 3;
+	if ((type & COL) != 0) val += 3;
+	if ((type & TEX) != 0) val += 2;
+	if ((type & NRM) != 0) val += 3;
+	return val;
+}
+
+struct MeshUtil
+{
+	GLuint VBO_ID, EBO_ID;
+	VertexType type;
+	GLenum mode;
+	std::vector<VertexType> packing;
+	unsigned int FpV, vertexCount, elementCount;
+};
+
+static const GLint vPosAdr = 0, vColAdr = 1, vUVAdr = 2, vNrmAdr = 3;
 
 int makeWindow(char const *name, int x, int y, int width, int height);
 void makeBuffer(int fd, libcamera::StreamConfiguration const &cfg, libcamera::FrameBuffer *buffer, int camera_num);

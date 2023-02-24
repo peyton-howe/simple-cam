@@ -42,16 +42,41 @@ int EventLoop::exec(int width, int height, int timeout)
 	int nFrames = 0;
 	int lastFrames = 0;
 	int droppedFrames = 0;
+	//int framepackage = 0;
 
 	//while (!exit_.load(std::memory_order_acquire)) {
 	while(1) {
 		auto now = std::chrono::high_resolution_clock::now();
 		if (timeout > 0 && now - start_time > std::chrono::milliseconds(timeout*1000))
 			break;
+			
 		//std::cout << calls_.size() << '\n';
-		if ((calls_.size() % 2 == 0) && (calls_.size() > 0)) {
-			if (calls_.size() > 2)
+		if ((calls_.size() % 2 == 0) && (calls_.size() > 1)) {
+			if (calls_.size() > 2){
 				droppedFrames++;
+				//if(calls_.size() == 4){
+					////droppedFrames++;
+					
+					//auto middle = std::next(calls_.begin(), calls_.size() / 2);
+					//std::list<std::function<void()>> left(calls_.begin(), middle), right(middle, calls_.end());
+					//std::cout << "left\n";
+					//calls_ = left;
+					//dispatchCalls();
+					//displayFrame(width, height);
+					//nFrames++;
+					//std::cout << "right\n";
+					//calls_ = right;
+					//dispatchCalls();
+					//displayFrame(width, height);
+				//}
+				//else
+					//droppedFrames++;
+			}
+			
+			if (calls_.size() == 1)
+				std::cout << "how did we get here\n";
+			
+			//std::cout << "calls size: " << calls_.size() << '\n';
 				
 			//std::cout << "calls_ size: " << calls_.size() << '\n';
 			

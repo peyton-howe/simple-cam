@@ -348,6 +348,8 @@ int main(int argc, char **argv)
 	//if (!controls.get(controls::Contrast)) // Adjust the contrast of the output image, where 1.0 = normal contrast
 	//	controls.set(controls::Contrast, 1.0);
 	
+	//controls.set(controls::AfMode, controls::AfModeContinuous);
+	
 	if (params.fps > 0)
 	{
 		int64_t frame_time = 1000000 / params.fps; // in us

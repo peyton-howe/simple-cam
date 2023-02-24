@@ -31,6 +31,7 @@ EGLUtil egl;
 DRMUtil drm;
 GBMUtil gbm;
 X11Util X11;
+MeshUtil mesh;
 bool first_time_ = true;
 std::string display_mode = "DRM";
 char const *name;
@@ -69,6 +70,10 @@ static GLint link_program(GLint vs, GLint fs)
 	GLint prog = glCreateProgram();
 	glAttachShader(prog, vs);
 	glAttachShader(prog, fs);
+	
+	glBindAttribLocation(prog, 0, "pos");
+	glBindAttribLocation(prog, 2, "tex");
+	
 	glLinkProgram(prog);
 
 	GLint ok;
@@ -93,41 +98,125 @@ static GLint link_program(GLint vs, GLint fs)
 	return prog;
 }
 
+void createMesh(const std::vector<VertexType> Packing, const std::vector<float> Vertices, const std::vector<unsigned short> Elements)
+{
+	// Calculate Floats per vertex as specified by packing
+	mesh.packing = Packing;
+	mesh.type = NONE;
+	for (unsigned int i = 0; i < mesh.packing.size(); i++)
+		mesh.type = mesh.type | mesh.packing[i];
+	mesh.FpV = PackedFloats(mesh.type);
+	mesh.vertexCount = std::floor((double)Vertices.size()/mesh.FpV);
+	mesh.elementCount = Elements.size();
+	std::cout << "Mesh (type " << mesh.type << ", FpV " << mesh.FpV << "): " << mesh.vertexCount << " vertices (" << Vertices.size() << " floats) / " << mesh.elementCount << " elements\n";
+
+	// Setup vertex buffer
+	glGenBuffers(1, &mesh.VBO_ID);
+	glBindBuffer(GL_ARRAY_BUFFER, mesh.VBO_ID);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(float) * Vertices.size(), &Vertices[0], GL_STATIC_DRAW);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+	// Setup elements buffer
+	mesh.EBO_ID = 0;
+	if (mesh.elementCount > 0)
+	{
+		glGenBuffers(1, &mesh.EBO_ID);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.EBO_ID);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned short) * mesh.elementCount, &Elements[0], GL_STATIC_DRAW);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+	}
+
+	mesh.mode = GL_TRIANGLES;
+}
+
+void drawMesh(void)
+{
+	glBindBuffer(GL_ARRAY_BUFFER, mesh.VBO_ID);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.EBO_ID);
+
+	// Setup vertex attributes
+	unsigned int offset = 0;
+	for (unsigned int i = 0; i < mesh.packing.size(); i++)
+	{
+		unsigned int packFloats = PackedFloats(mesh.packing[i]);
+		GLint adr = 0;
+		if (mesh.packing[i] == POS) adr = vPosAdr;
+		else if (mesh.packing[i] == COL) adr = vColAdr;
+		else if (mesh.packing[i] == TEX) adr = vUVAdr;
+		else if (mesh.packing[i] == NRM) adr = vNrmAdr;
+		else {
+			std::cout << "Unknown packing " << mesh.packing[i] << "! \n";
+			continue;
+		}
+		//std::cout << "packFloats" << packFloats << "\n";
+		glVertexAttribPointer(adr, packFloats, GL_FLOAT, GL_FALSE, sizeof(float) * mesh.FpV, (void *)(sizeof(float) * offset));
+		glEnableVertexAttribArray(adr);
+		offset += packFloats;
+	}
+	//std::cout << mesh.mode << "\n";
+	if (mesh.EBO_ID == 0)
+		glDrawArrays(mesh.mode, 0, mesh.vertexCount);
+	else
+		glDrawElements(mesh.mode, mesh.elementCount, GL_UNSIGNED_SHORT, 0);
+
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+}
+
 void gl_setup()
 {
-	float w_factor = 1920 / (float)1920;
-	float h_factor = 1080 / (float)1080;
-	float max_dimension = std::max(w_factor, h_factor);
-	w_factor /= max_dimension;
-	h_factor /= max_dimension;
-	char vs[256];
-	snprintf(vs, sizeof(vs),
-			 "attribute vec4 pos;\n"
-			 "varying vec2 texcoord;\n"
-			 "\n"
-			 "void main() {\n"
-			 "  gl_Position = pos;\n"
-			 "  texcoord.x = pos.x / %f + 0.5;\n"
-			 "  texcoord.y = 0.5 - pos.y / %f;\n"
-			 "}\n",
-			 2.0 * w_factor, 2.0 * h_factor);
-	vs[sizeof(vs) - 1] = 0;
+	//float w_factor = 1920 / (float)1920;
+	//float h_factor = 1080 / (float)1080;
+	//float max_dimension = std::max(w_factor, h_factor);
+	//w_factor /= max_dimension;
+	//h_factor /= max_dimension;
+	//char vs[256];
+	//snprintf(vs, sizeof(vs),
+			 //"attribute vec4 pos;\n"
+			 //"varying vec2 texcoord;\n"
+			 //"\n"
+			 //"void main() {\n"
+			 //"  gl_Position = pos;\n"
+			 //"  texcoord.x = pos.x / %f + 0.5;\n"
+			 //"  texcoord.y = 0.5 - pos.y / %f;\n"
+			 //"}\n",
+			 //2.0 * w_factor, 2.0 * h_factor);
+	//vs[sizeof(vs) - 1] = 0;
+	//GLint vs_s = compile_shader(GL_VERTEX_SHADER, vs);
+	//const char *fs = "#extension GL_OES_EGL_image_external : enable\n"
+					 //"precision mediump float;\n"
+					 //"uniform samplerExternalOES s;\n"
+					 //"varying vec2 texcoord;\n"
+					 //"void main() {\n"
+					 //"  gl_FragColor = texture2D(s, texcoord);\n"
+					 //"}\n";
+	const char *vs = "#version 300 es\n"
+					 "in vec3 pos;\n"
+			         "in vec2 tex;\n"
+			         "out vec2 texcoord;\n"
+			         "\n"
+			         "void main() {\n"
+			         "  gl_Position = vec4(pos, 1.0);\n"
+			         "  texcoord = tex;\n"
+			         "}\n";
 	GLint vs_s = compile_shader(GL_VERTEX_SHADER, vs);
-	const char *fs = "#extension GL_OES_EGL_image_external : enable\n"
+	const char *fs = "#version 300 es\n"
+					 "#extension GL_OES_EGL_image_external : enable\n"
 					 "precision mediump float;\n"
 					 "uniform samplerExternalOES s;\n"
-					 "varying vec2 texcoord;\n"
+					 "in vec2 texcoord;\n"
+					 "out vec4 out_color;\n"
 					 "void main() {\n"
-					 "  gl_FragColor = texture2D(s, texcoord);\n"
+					 "  out_color = texture2D(s, texcoord);\n"
 					 "}\n";
 	GLint fs_s = compile_shader(GL_FRAGMENT_SHADER, fs);
 	GLint prog = link_program(vs_s, fs_s);
 
 	glUseProgram(prog);
 
-	static const float verts[] = { -w_factor, -h_factor, w_factor, -h_factor, w_factor, h_factor, -w_factor, h_factor };
-	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, verts);
-	glEnableVertexAttribArray(0);
+	//static const float verts[] = { -w_factor, -h_factor, w_factor, -h_factor, w_factor, h_factor, -w_factor, h_factor };
+	//glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, verts);
+	//glEnableVertexAttribArray(0);
 	glGenTextures(1, &egl.FramebufferName);
 	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -135,6 +224,43 @@ void gl_setup()
 	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	
+	std::vector<float> vertices; 
+    std::vector<unsigned short> indices;
+	float N = 100;    //create an NxN grid of triangles (NxNx2 Triangles produced)
+    float z = 0;      //empty z component for the POS vector
+    
+    for (float x = -1, a = 0; x <= 1 && a <= 1; x+= 2/N, a += 1/N)
+    {
+		for (float y = -1, b = 0; y <= 1 && b <= 1; y+= 2/N, b+= 1/N)
+        {
+			float theta = atan2(y, x);
+			float r = sqrt(x*x + y*y);
+			r = r -0.15*pow(r, 3.0) + 0.01*pow(r, 5.0);
+			vertices.push_back(r*cos(theta));
+			vertices.push_back(r*sin(theta));
+			//vertices.push_back(x);
+			//vertices.push_back(y);
+			vertices.push_back(z);
+			vertices.push_back(a);
+			vertices.push_back(b);
+        }
+	}
+	 
+	for (int x = 0; x < N; x++)
+	{
+		for (int z = 0; z < N; z++)
+		{
+			int offset = x * (N+1) + z;
+            indices.push_back((short)(offset+0));
+            indices.push_back((short)(offset+1));
+			indices.push_back((short)(offset+ (N+1) + 1));
+            indices.push_back((short)(offset+0));
+            indices.push_back((short)(offset+ (N+1)));
+            indices.push_back((short)(offset+ (N+1) + 1));
+        }
+    }
+    
+    createMesh({ POS, TEX }, vertices, indices);
 }
 
 static drmModeConnector *getConnector(drmModeRes *resources)
@@ -590,13 +716,15 @@ void displayFrame(int width, int height)
 	glBindTexture(GL_TEXTURE_EXTERNAL_OES, egl.FramebufferName);
 	glViewport(0,0,width,height);
 	//glBindFramebuffer(GL_FRAMEBUFFER, 0);    // do i need this?
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	//glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	drawMesh();
 	
 	//Draw camera 2
 	glBindTexture(GL_TEXTURE_EXTERNAL_OES, egl.FramebufferName2);
 	glViewport(width,0,width,height);
-	//glBindFramebuffer(GL_FRAMEBUFFER, 0);    // do i need this?
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);    // do i need this?
+	//glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	drawMesh();
 	
 	eglSwapBuffers(egl.display, egl.surface);
 	if (display_mode == "DRM")
