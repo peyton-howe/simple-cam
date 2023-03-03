@@ -165,39 +165,38 @@ void drawMesh(void)
 
 void gl_setup()
 {
-	//float w_factor = 1920 / (float)1920;
-	//float h_factor = 1080 / (float)1080;
-	//float max_dimension = std::max(w_factor, h_factor);
-	//w_factor /= max_dimension;
-	//h_factor /= max_dimension;
-	//char vs[256];
-	//snprintf(vs, sizeof(vs),
-			 //"attribute vec4 pos;\n"
-			 //"varying vec2 texcoord;\n"
-			 //"\n"
-			 //"void main() {\n"
-			 //"  gl_Position = pos;\n"
-			 //"  texcoord.x = pos.x / %f + 0.5;\n"
-			 //"  texcoord.y = 0.5 - pos.y / %f;\n"
-			 //"}\n",
-			 //2.0 * w_factor, 2.0 * h_factor);
-	//vs[sizeof(vs) - 1] = 0;
-	//GLint vs_s = compile_shader(GL_VERTEX_SHADER, vs);
-	//const char *fs = "#extension GL_OES_EGL_image_external : enable\n"
-					 //"precision mediump float;\n"
-					 //"uniform samplerExternalOES s;\n"
-					 //"varying vec2 texcoord;\n"
-					 //"void main() {\n"
-					 //"  gl_FragColor = texture2D(s, texcoord);\n"
-					 //"}\n";
+	
+	//const char *vs = "#version 300 es\n"
+					 //"in vec3 pos;\n"
+			         //"in vec2 tex;\n"
+			         //"out vec2 texcoord;\n"
+			         //"\n"
+			         //"void main() {\n"
+			         //"  gl_Position = vec4(pos, 1.0);\n"
+			         //"  texcoord = tex;\n"
+			         //"}\n";
+			         
 	const char *vs = "#version 300 es\n"
-					 "in vec3 pos;\n"
+					 "in vec4 pos;\n"
 			         "in vec2 tex;\n"
 			         "out vec2 texcoord;\n"
 			         "\n"
+			         "vec4 Distort(vec4 p)\n"
+					 "{\n"
+					 "	 vec4 v = p;\n"
+					 "	 float r = length(v.xyz);\n"
+					 "	 if (r > 0.0)\n"
+					 "	 {\n"
+					 "		 float theta = atan(p.y,p.x);\n"
+					 " 		 r = r - 0.15*pow(r, 3.0) + 0.01*pow(r, 5.0);\n"
+					 "		 v.x = r * cos(theta);\n"
+					 "		 v.y = r * sin(theta);\n"
+					 "	 }\n"
+					 "	 return v;\n"
+					 "}\n\n"
 			         "void main() {\n"
-			         "  gl_Position = vec4(pos, 1.0);\n"
-			         "  texcoord = vec2(tex.x, 1.0-tex.y);\n"
+			         "  gl_Position = vec4(Distort(pos)); //second value is zoom \n"
+			         "  texcoord = tex;\n"
 			         "}\n";
 	GLint vs_s = compile_shader(GL_VERTEX_SHADER, vs);
 	const char *fs = "#version 300 es\n"
@@ -214,8 +213,6 @@ void gl_setup()
 
 	glUseProgram(prog);
 
-	//static const float verts[] = { -w_factor, -h_factor, w_factor, -h_factor, w_factor, h_factor, -w_factor, h_factor };
-	//glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, verts);
 	//glEnableVertexAttribArray(0);
 	glGenTextures(1, &egl.FramebufferName);
 	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -233,13 +230,13 @@ void gl_setup()
     {
 		for (float y = -1, b = 0; y <= 1 && b <= 1; y+= 2/N, b+= 1/N)
         {
-			float theta = atan2(y, x);
-			float r = sqrt(x*x + y*y);
-			r = r -0.15*pow(r, 3.0) + 0.01*pow(r, 5.0);
-			vertices.push_back(r*cos(theta));
-			vertices.push_back(r*sin(theta));
-			//vertices.push_back(x);
-			//vertices.push_back(y);
+			//float theta = atan2(y, x);
+			//float r = sqrt(x*x + y*y);
+			//r = r -0.15*pow(r, 3.0) + 0.01*pow(r, 5.0);
+			//vertices.push_back(r*cos(theta));
+			//vertices.push_back(-r*sin(theta));
+			vertices.push_back(x);
+			vertices.push_back(-y);
 			vertices.push_back(z);
 			vertices.push_back(a);
 			vertices.push_back(b);
