@@ -51,13 +51,20 @@ message(STATUS "    version: ${LIBDRM_VERSION}")
 message(STATUS "    libraries: ${LIBDRM_LINK_LIBRARIES}")
 message(STATUS "    include path: ${LIBDRM_INCLUDE_DIRS}")
 
-include_directories(${CMAKE_SOURCE_DIR} ${LIBCAMERA_INCLUDE_DIRS} ${LIBEVENT_INCLUDE_DIRS} ${LIBDRM_INCLUDE_DIRS}) 
-set(TARGET_LIBS ${TARGET_LIBS} ${X11_LIBRARIES} ${EPOXY_LIBRARIES} ${LIBGBM_LIBRARIES})
+find_package(OpenCV QUIET)
+set(OpenCV_LIBS_REDUCED -lopencv_core -lopencv_imgproc -lopencv_objdetect)
+message(STATUS "OpenCV library found:")
+message(STATUS "    version: ${OpenCV_VERSION}")
+message(STATUS "    libraries: ${OpenCV_LIBS_REDUCED}")
+message(STATUS "    include path: ${OpenCV_INCLUDE_DIRS}")
+
+include_directories(${CMAKE_SOURCE_DIR} ${LIBCAMERA_INCLUDE_DIRS} ${LIBEVENT_INCLUDE_DIRS} ${LIBDRM_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS}) 
+set(TARGET_LIBS ${TARGET_LIBS} ${X11_LIBRARIES} ${EPOXY_LIBRARIES} ${LIBGBM_LIBRARIES} ${OpenCV_LIBS_REDUCED})
 
 add_executable(simple-cam event_loop.cpp preview.cpp simple-cam.cpp) 
 
 target_link_libraries(simple-cam PkgConfig::LIBEVENT)
 target_link_libraries(simple-cam PkgConfig::LIBCAMERA)
 target_link_libraries(simple-cam PkgConfig::LIBDRM)
-target_link_libraries(simple-cam ${TARGET_LIBS})
+target_link_libraries(simple-cam ${TARGET_LIBS} ${OpenCV_LIBS})
 

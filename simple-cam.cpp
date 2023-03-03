@@ -14,6 +14,10 @@
 #include "event_loop.h"
 #include "preview.h"
 
+#include "opencv2/core.hpp"
+#include "opencv2/imgproc.hpp"
+
+#include <sys/mman.h>
 
 struct options
 {
@@ -58,14 +62,14 @@ static void requestComplete2(Request *request)
 
 static void processRequest(Request *request)
 {
-	//float framerate = 0;
-	//auto ts = request->metadata().get(controls::SensorTimestamp);
-	//uint64_t timestamp = ts ? *ts : request->buffers().begin()->second->metadata().timestamp;
-	//if (last_timestamp_ == 0 || last_timestamp_ == timestamp)
-		//framerate = 0;
-	//else
-		//framerate = 1e9 / (timestamp - last_timestamp_);
-	//last_timestamp_ = timestamp;
+	float framerate = 0;
+	auto ts = request->metadata().get(controls::SensorTimestamp);
+	uint64_t timestamp = ts ? *ts : request->buffers().begin()->second->metadata().timestamp;
+	if (last_timestamp_ == 0 || last_timestamp_ == timestamp)
+		framerate = 0;
+	else
+		framerate = 1e9 / (timestamp - last_timestamp_);
+	last_timestamp_ = timestamp;
 	
 	////if (framerate < 55)
 	//std::cout << "Cam1 fps: " << framerate << '\n';
@@ -77,6 +81,31 @@ static void processRequest(Request *request)
 		StreamConfiguration const &cfg = stream->configuration();
 		int fd = buffer->planes()[0].fd.get();
 		
+        uint8_t *ptr = static_cast<uint8_t *>(mmap(NULL, buffer->planes()[0].length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0));
+        
+        cv::Mat image(cfg.size.height, cfg.size.width, CV_8UC1, ptr, cfg.stride);
+        
+		int font = cv::FONT_HERSHEY_SIMPLEX;
+		
+		std::string text = "Framerate: " + std::to_string(framerate);
+		double adjusted_scale_ = 1.0 * cfg.size.width / 1200;
+		double adjusted_thickness_ = std::max(2 * cfg.size.width / 700, 1u);
+		int baseline = 0;
+
+		cv::Size size = cv::getTextSize(text, font, adjusted_scale_, adjusted_thickness_, &baseline);
+		
+		int bg_ = 0;
+		int fg_ = 255;
+		double alpha_ = 0.3;
+
+		// Can't find a handy "draw rectangle with alpha" function...
+		for (int y = 0; y < size.height + baseline; y++, ptr += cfg.stride)
+		{
+			for (int x = 0; x < size.width; x++)
+				ptr[x] = bg_ * alpha_ + (1 - alpha_) * ptr[x];
+		}
+		cv::putText(image, text, cv::Point(0, size.height), font, adjusted_scale_, fg_, adjusted_thickness_, 0);
+			
 		makeBuffer(fd, cfg, buffer, 1);
 	}
 	

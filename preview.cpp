@@ -197,7 +197,7 @@ void gl_setup()
 			         "\n"
 			         "void main() {\n"
 			         "  gl_Position = vec4(pos, 1.0);\n"
-			         "  texcoord = tex;\n"
+			         "  texcoord = vec2(tex.x, 1.0-tex.y);\n"
 			         "}\n";
 	GLint vs_s = compile_shader(GL_VERTEX_SHADER, vs);
 	const char *fs = "#version 300 es\n"
@@ -631,7 +631,7 @@ void makeBuffer(int fd, libcamera::StreamConfiguration const &info, libcamera::F
 		gl_setup();
 		first_time_ = false;
 	}
-
+	
 	EGLint attribs[] = {
 		EGL_WIDTH, static_cast<EGLint>(info.size.width),
 		EGL_HEIGHT, static_cast<EGLint>(info.size.height),
