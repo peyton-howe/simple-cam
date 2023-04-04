@@ -115,8 +115,9 @@ struct MeshUtil
 
 static const GLint vPosAdr = 0, vColAdr = 1, vUVAdr = 2, vNrmAdr = 3;
 
-int makeWindow(char const *name, int x, int y, int width, int height);
+int makeWindow(char const *name, int x, int y, int width, int height, int rotate);
 void makeBuffer(int fd, libcamera::StreamConfiguration const &cfg, libcamera::FrameBuffer *buffer, int camera_num);
-void displayFrame(int width, int height);
+void displayFrame(int width, int height, int rotate);
 void gbmClean();
 void cleanup();
+void shader_setup(int rotate);

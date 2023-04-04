@@ -14,7 +14,7 @@ public:
 	~EventLoop();
 
 	void exit(int code = 0);
-	int exec(int width, int height, int timeout);
+	int exec(int width, int height, int timeout, int rotate);
 
 	void timeout(unsigned int sec);
 	void callLater(const std::function<void()> &func);

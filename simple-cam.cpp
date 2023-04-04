@@ -30,6 +30,7 @@ struct options
 	std::string exposure;
 	int exposure_index;
 	int timeout;
+	int rotate;
 };
 
 std::unique_ptr<options> options_;
@@ -149,7 +150,8 @@ int main(int argc, char **argv)
 		.shutterSpeed = 0,
 		.exposure = "normal",
 		.exposure_index = cam_exposure_index,
-		.timeout = 10
+		.timeout = 10,
+		.rotate = 0
 	};
 			
 	int arg;
@@ -185,6 +187,9 @@ int main(int argc, char **argv)
 				break;
 			case 't':
 				params.timeout = std::stoi(optarg);
+				break;
+			case 'r':
+				params.rotate = std::stoi(optarg);
 				break;
 			default:
 				printf("Usage: %s [-d dual cameras] [-w width] [-h height] [-p x,y,width,height][-f fps] [-s shutter-speed-ns] [-e exposure] [-t timeout] \n", argv[0]);
@@ -397,11 +402,15 @@ int main(int argc, char **argv)
 	for (std::unique_ptr<Request> &request2 : requests2)
 		camera2->queueRequest(request2.get());
 		
+	if (params.rotate == 90 || params.rotate == 270)
+		std::swap(params.prev_width, params.prev_height);
+		
 	// Setup EGL context
-	makeWindow("simple-cam", params.prev_x, params.prev_y, params.prev_width, params.prev_height);
+	makeWindow("simple-cam", params.prev_x, params.prev_y, params.prev_width, params.prev_height, params.rotate);
+	shader_setup(params.rotate);
 
 	loop.timeout(params.timeout);
-	int ret = loop.exec(params.prev_width, params.prev_height, params.timeout);
+	int ret = loop.exec(params.prev_width, params.prev_height, params.timeout, params.rotate);
 	std::cout << "Capture ran for " << params.timeout << " seconds and "
 		  << "stopped with exit status: " << ret << std::endl;
 

@@ -40,6 +40,103 @@ int y;
 int width;
 int height;
 
+char vs[1024];
+const char *fs;
+
+//TODO: Add different shaders here
+void shader_setup(int rotate){
+	//if (rotate == 90 || rotate == 270) {
+		//vs = "#version 300 es\n"
+			 //"in vec3 pos;\n"
+			 //"in vec2 tex;\n"
+			 //"out vec2 texcoord;\n"
+			 //"\n"
+			 //"vec3 Distort(vec3 p)\n"
+			 //"{\n"
+			 //"	 vec3 v = p;\n"
+			 //"	 float r = length(v.xyz);\n"
+			 //"	 if (r > 0.0)\n"
+			 //"	 {\n"
+			 //"		 float theta = atan(p.y,p.x);\n"
+			 //" 		 r = r - 0.15*pow(r, 3.0) + 0.01*pow(r, 5.0);\n"
+			 //"		 v.x = r * cos(theta);\n"
+			 //"		 v.y = r * sin(theta);\n"
+			 //"	 }\n"
+			 //"	 return v;\n"
+			 //"}\n\n"
+			 //"void main() {\n"
+			 //"  mat3 A = mat3(0.0, -1.0, 0.0,\n"
+			 //"                1.0, 0.0, 0.0,\n"
+			 //"                0.0, 0.0, 1.0);\n"
+			 //"  gl_Position = vec4(Distort(A*pos), 1.0); //second value is zoom \n"
+			 //"  texcoord = tex;\n"
+			 //"}\n";
+	//}else{
+		//vs = "#version 300 es\n"
+			 //"in vec4 pos;\n"
+			 //"in vec2 tex;\n"
+			 //"out vec2 texcoord;\n"
+			 //"\n"
+			 //"vec4 Distort(vec4 p)\n"
+			 //"{\n"
+			 //"	 vec4 v = p;\n"
+			 //"	 float r = length(v.xyz);\n"
+			 //"	 if (r > 0.0)\n"
+			 //"	 {\n"
+			 //"		 float theta = atan(p.y,p.x);\n"
+			 //" 		 r = r - 0.15*pow(r, 3.0) + 0.01*pow(r, 5.0);\n"
+			 //"		 v.x = r * cos(theta);\n"
+			 //"		 v.y = r * sin(theta);\n"
+			 //"	 }\n"
+			 //"	 return v;\n"
+			 //"}\n\n"
+			 //"void main() {\n"
+			 //"  gl_Position = vec4(Distort(A)); //second value is zoom \n"
+			 //"  texcoord = tex;\n"
+			 //"}\n";
+	//}
+	
+	float angle = static_cast<float>(rotate*(M_PI/180));
+	
+	snprintf(vs, sizeof(vs), "#version 300 es\n"
+							 "in vec3 pos;\n"
+							 "in vec2 tex;\n"
+							 "out vec2 texcoord;\n"
+							 "\n"
+							 "vec3 Distort(vec3 p)\n"
+							 "{\n"
+							 "	 vec3 v = p;\n"
+							 "	 float r = length(v.xyz);\n"
+							 "	 if (r > 0.0)\n"
+							 "	 {\n"
+							 "		 float theta = atan(p.y,p.x);\n"
+							 " 		 r = r - 0.15*pow(r, 3.0) + 0.01*pow(r, 5.0);\n"
+							 "		 v.x = r * cos(theta);\n"
+							 "		 v.y = r * sin(theta);\n"
+							 "	 }\n"
+							 "	 return v;\n"
+							 "}\n\n"
+							 "void main() {\n"
+							 "  mat3 A = mat3(cos(%f), -sin(%f),  0.0,\n"
+							 "                sin(%f),  cos(%f),  0.0,\n"
+							 "                  0.0,      0.0,    1.0);\n"
+							 "  gl_Position = vec4(Distort(A*pos), 1.0); //second value is zoom \n"
+							 "  texcoord = tex;\n"
+							 "}\n",
+							 angle, angle, angle, angle);
+			 
+	fs = "#version 300 es\n"
+		 "#extension GL_OES_EGL_image_external : enable\n"
+		 "precision mediump float;\n"
+		 "uniform samplerExternalOES s;\n"
+		 "in vec2 texcoord;\n"
+		 "out vec4 out_color;\n"
+		 "void main() {\n"
+		 "  out_color = texture2D(s, texcoord);\n"
+		 "}\n";	
+
+}
+
 static GLint compile_shader(GLenum target, const char *source)
 {
 	GLuint s = glCreateShader(target);
@@ -176,38 +273,38 @@ void gl_setup()
 			         //"  texcoord = tex;\n"
 			         //"}\n";
 			         
-	const char *vs = "#version 300 es\n"
-					 "in vec4 pos;\n"
-			         "in vec2 tex;\n"
-			         "out vec2 texcoord;\n"
-			         "\n"
-			         "vec4 Distort(vec4 p)\n"
-					 "{\n"
-					 "	 vec4 v = p;\n"
-					 "	 float r = length(v.xyz);\n"
-					 "	 if (r > 0.0)\n"
-					 "	 {\n"
-					 "		 float theta = atan(p.y,p.x);\n"
-					 " 		 r = r - 0.15*pow(r, 3.0) + 0.01*pow(r, 5.0);\n"
-					 "		 v.x = r * cos(theta);\n"
-					 "		 v.y = r * sin(theta);\n"
-					 "	 }\n"
-					 "	 return v;\n"
-					 "}\n\n"
-			         "void main() {\n"
-			         "  gl_Position = vec4(Distort(pos)); //second value is zoom \n"
-			         "  texcoord = tex;\n"
-			         "}\n";
+	//const char *vs = "#version 300 es\n"
+					 //"in vec4 pos;\n"
+			         //"in vec2 tex;\n"
+			         //"out vec2 texcoord;\n"
+			         //"\n"
+			         //"vec4 Distort(vec4 p)\n"
+					 //"{\n"
+					 //"	 vec4 v = p;\n"
+					 //"	 float r = length(v.xyz);\n"
+					 //"	 if (r > 0.0)\n"
+					 //"	 {\n"
+					 //"		 float theta = atan(p.y,p.x);\n"
+					 //" 		 r = r - 0.15*pow(r, 3.0) + 0.01*pow(r, 5.0);\n"
+					 //"		 v.x = r * cos(theta);\n"
+					 //"		 v.y = r * sin(theta);\n"
+					 //"	 }\n"
+					 //"	 return v;\n"
+					 //"}\n\n"
+			         //"void main() {\n"
+			         //"  gl_Position = vec4(Distort(pos)); //second value is zoom \n"
+			         //"  texcoord = tex;\n"
+			         //"}\n";
 	GLint vs_s = compile_shader(GL_VERTEX_SHADER, vs);
-	const char *fs = "#version 300 es\n"
-					 "#extension GL_OES_EGL_image_external : enable\n"
-					 "precision mediump float;\n"
-					 "uniform samplerExternalOES s;\n"
-					 "in vec2 texcoord;\n"
-					 "out vec4 out_color;\n"
-					 "void main() {\n"
-					 "  out_color = texture2D(s, texcoord);\n"
-					 "}\n";
+	//const char *fs = "#version 300 es\n"
+					 //"#extension GL_OES_EGL_image_external : enable\n"
+					 //"precision mediump float;\n"
+					 //"uniform samplerExternalOES s;\n"
+					 //"in vec2 texcoord;\n"
+					 //"out vec4 out_color;\n"
+					 //"void main() {\n"
+					 //"  out_color = texture2D(s, texcoord);\n"
+					 //"}\n";
 	GLint fs_s = compile_shader(GL_FRAGMENT_SHADER, fs);
 	GLint prog = link_program(vs_s, fs_s);
 
@@ -511,7 +608,7 @@ void setupDRM()
 	free(egl.configs);
 }
 
-int makeWindow(char const *name, int x, int y, int width, int height)
+int makeWindow(char const *name, int x, int y, int width, int height, int rotate)
 {
 	//Open DRM device first since its very easy to tell if we can use it or if X11 is the master.
 	//We have to try card0 and card1 to see which is valid since it can vary depending on bootup
@@ -539,11 +636,12 @@ int makeWindow(char const *name, int x, int y, int width, int height)
 			throw std::runtime_error("no connected connector!\n");
 		}
 	
+		//TODO: Make sure this is correct (may need to swap width and height if rotating)
 		drm.conId = drm.connector->connector_id;
 		for (int i = 0; i < drm.connector->count_modes; i++) {
 			drm.mode = drm.connector->modes[i];
 			printf("resolution: %ix%i %i\n", drm.mode.hdisplay, drm.mode.vdisplay, drm.mode.vrefresh);
-			if (drm.mode.hdisplay == 1920 && drm.mode.vdisplay == 1080 && drm.mode.vrefresh == 60) //set display to 1080p 60Hz
+			if (drm.mode.hdisplay == width && drm.mode.vdisplay == height && drm.mode.vrefresh == 60) //set display to 1080p 60Hz
 				break;
 		}
 		//drm_mode_ = drm_connector_->modes[0]; // array of resolutions and refresh rates supported by this display
@@ -582,6 +680,10 @@ int makeWindow(char const *name, int x, int y, int width, int height)
 		drmModeFreeEncoder(drm.encoder);
 		drmModeFreeConnector(drm.connector);
 		drmModeFreeResources(drm.resources);
+		drm.mode.hdisplay = 1920;
+                drm.mode.vdisplay = 1080;
+		if (rotate == 90 || rotate == 270)
+			std::swap(drm.mode.hdisplay, drm.mode.vdisplay);
 		
 		gbm.device = gbm_create_device(drm.fd);
 		gbm.surface = gbm_surface_create(gbm.device, drm.mode.hdisplay, drm.mode.vdisplay, GBM_FORMAT_ARGB8888, GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);	
@@ -702,26 +804,52 @@ void gbmSwapBuffers()
 	gbm.previousFb = fb;
 }
 
-void displayFrame(int width, int height)
+void displayFrame(int width, int height, int rotate)
 {
 	glClearColor(0, 0, 0, 0);
 	glClear(GL_COLOR_BUFFER_BIT);
 	
-	width = width/2;
+	if(rotate == 90 || rotate == 270) {
+		height = height/2;
+		
+		//Draw camera 1
+		glBindTexture(GL_TEXTURE_EXTERNAL_OES, egl.FramebufferName);
+		glViewport(0,0,width,height);
+		drawMesh();
+		
+		// Draw camera 2
+		glBindTexture(GL_TEXTURE_EXTERNAL_OES, egl.FramebufferName2);
+		glViewport(0,height,width,height);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);    // do i need this?
+		drawMesh();
+	}else{
+		width = width/2;
+		
+		//Draw camera 1
+		glBindTexture(GL_TEXTURE_EXTERNAL_OES, egl.FramebufferName);
+		glViewport(0,0,width,height);
+		drawMesh();
+		
+		// Draw camera 2
+		glBindTexture(GL_TEXTURE_EXTERNAL_OES, egl.FramebufferName2);
+		glViewport(width,0,width,height);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);    // do i need this?
+		drawMesh();
+	}
 	
-	//Draw camera 1
-	glBindTexture(GL_TEXTURE_EXTERNAL_OES, egl.FramebufferName);
-	glViewport(0,0,width,height);
+	////Draw camera 1
+	//glBindTexture(GL_TEXTURE_EXTERNAL_OES, egl.FramebufferName);
+	//glViewport(0,0,width,height);
+	////glBindFramebuffer(GL_FRAMEBUFFER, 0);    // do i need this?
+	////glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	//drawMesh();
+	
+	////Draw camera 2
+	//glBindTexture(GL_TEXTURE_EXTERNAL_OES, egl.FramebufferName2);
+	//glViewport(width,0,width,height);
 	//glBindFramebuffer(GL_FRAMEBUFFER, 0);    // do i need this?
-	//glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-	drawMesh();
+	////glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 	
-	//Draw camera 2
-	glBindTexture(GL_TEXTURE_EXTERNAL_OES, egl.FramebufferName2);
-	glViewport(width,0,width,height);
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);    // do i need this?
-	//glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-	drawMesh();
 	
 	eglSwapBuffers(egl.display, egl.surface);
 	if (display_mode == "DRM")

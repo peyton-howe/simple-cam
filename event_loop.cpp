@@ -33,7 +33,7 @@ EventLoop::~EventLoop()
 	libevent_global_shutdown();
 }
 
-int EventLoop::exec(int width, int height, int timeout)
+int EventLoop::exec(int width, int height, int timeout, int rotate)
 {
 	exitCode_ = -1;
 	exit_.store(false, std::memory_order_release);
@@ -84,7 +84,7 @@ int EventLoop::exec(int width, int height, int timeout)
 			//std::cout << "here doing stuff \n";
 			dispatchCalls();
 			//event_base_loop(event_, EVLOOP_NO_EXIT_ON_EMPTY);
-			displayFrame(width, height);
+			displayFrame(width, height, rotate);
 			nFrames++;
 			if (nFrames % 160 == 0)
 			{ // Log FPS
