@@ -18,6 +18,7 @@
 #include "opencv2/imgproc.hpp"
 
 #include <sys/mman.h>
+#include<fstream>
 
 struct options
 {
@@ -31,9 +32,13 @@ struct options
 	int exposure_index;
 	int timeout;
 	int rotate;
+	unsigned int sensor_height;
+	unsigned int sensor_width;
+	char sensor_format;
+	int autofocus;
 };
 
-std::unique_ptr<options> options_;
+//std::unique_ptr<options> options_;
 int cam_exposure_index;
 uint64_t last_timestamp_ = 0;
 
@@ -72,7 +77,7 @@ static void processRequest(Request *request)
 		framerate = 1e9 / (timestamp - last_timestamp_);
 	last_timestamp_ = timestamp;
 	
-	////if (framerate < 55)
+	//if (framerate < 55)
 	//std::cout << "Cam1 fps: " << framerate << '\n';
 	
 	const Request::BufferMap &buffers = request->buffers();
@@ -83,7 +88,7 @@ static void processRequest(Request *request)
 		int fd = buffer->planes()[0].fd.get();
 		
         uint8_t *ptr = static_cast<uint8_t *>(mmap(NULL, buffer->planes()[0].length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0));
-        
+
         cv::Mat image(cfg.size.height, cfg.size.width, CV_8UC1, ptr, cfg.stride);
         
 		int font = cv::FONT_HERSHEY_SIMPLEX;
@@ -109,8 +114,6 @@ static void processRequest(Request *request)
 			
 		makeBuffer(fd, cfg, buffer, 1);
 	}
-	
-	//std::cout << "grabbed a frame from camera 1\n";
 
 	/* Re-queue the Request to the camera. */	
 	request->reuse(Request::ReuseBuffers);
@@ -125,11 +128,68 @@ static void processRequest2(Request *request)
 		FrameBuffer *buffer2 = bufferPair.second;
 		StreamConfiguration const &cfg2 = stream->configuration();
 		int fd2 = buffer2->planes()[0].fd.get();
+
+		uint8_t *ptr = static_cast<uint8_t *>(mmap(NULL, buffer2->planes()[0].length, PROT_READ | PROT_WRITE, MAP_SHARED, fd2, 0));
+
+		cv::Mat text_image(cfg2.size.height, cfg2.size.width, CV_8UC1, ptr, cfg2.stride);
 		
+		int font = cv::FONT_HERSHEY_SIMPLEX;
+		
+		// Memory usage (kinda)
+		// std::ifstream file("/proc/meminfo");
+		// char id[18], kb[2];
+		// unsigned int memTotal, memFree, buffers, cached;
+		// //unsigned int CmaFree;
+
+		/* file >> id >> memTotal >> kb \
+			>> id >> memFree  >> kb \
+			>> id >> buffers  >> kb \
+			>> id >> buffers  >> kb \
+			>> id >> cached   >> kb; */
+		
+		// // std::string token;
+
+		// // while (file >> token){
+		// // 	if (token == "CmaFree:") {
+		// // 		file >> CmaFree;
+		// // 		break;
+		// // 	}
+		// // }
+
+		// //unsigned int CmaFree;
+		// //file >> id >> CmaFree >> kb;
+		// file.close();
+
+		// std::string text = std::to_string(((memTotal - memFree) - (buffers + cached)) / 1024);
+		// //std::string text = std::to_string(CmaFree);
+
+		std::ifstream file("/sys/class/thermal/thermal_zone0/temp");
+		unsigned int CPU;
+		file >> CPU;
+		CPU = CPU/1000;
+		std::string text = "CPU Temp: " + std::to_string(CPU);
+
+		double adjusted_scale_ = 1.0 * cfg2.size.width / 1200;
+		double adjusted_thickness_ = std::max(2 * cfg2.size.width / 700, 1u);
+		int baseline = 0;
+
+		cv::Size size = cv::getTextSize(text, font, adjusted_scale_, adjusted_thickness_, &baseline);
+		
+		int bg_ = 0;
+		int fg_ = 255;
+		double alpha_ = 0.3;
+
+		// Can't find a handy "draw rectangle with alpha" function...
+		for (int y = 0; y < size.height + baseline; y++, ptr += cfg2.stride)
+		{
+			for (int x = 0; x < size.width; x++)
+				ptr[x] = bg_ * alpha_ + (1 - alpha_) * ptr[x];
+		}
+
+		cv::putText(text_image, text, cv::Point(0, size.height), font, adjusted_scale_, fg_, adjusted_thickness_, 0);
+
 		makeBuffer(fd2, cfg2, buffer2, 2);
 	}
-	
-	//std::cout << "grabbed a frame from camera 2\n";
 	
 	/* Re-queue the Request to the camera. */
 	request->reuse(Request::ReuseBuffers);
@@ -151,11 +211,15 @@ int main(int argc, char **argv)
 		.exposure = "normal",
 		.exposure_index = cam_exposure_index,
 		.timeout = 10,
-		.rotate = 0
+		.rotate = 0,
+		.sensor_height = 0,
+		.sensor_width = 0,
+		.sensor_format = 'U',
+		.autofocus = 0
 	};
 			
 	int arg;
-	while ((arg = getopt(argc, argv, "r:w:h:p:f:s:e:t:")) != -1)
+	while ((arg = getopt(argc, argv, "r:w:h:p:f:s:e:t:m:a:")) != -1)
 	{
 		switch (arg)
 		{
@@ -190,15 +254,22 @@ int main(int argc, char **argv)
 				break;
 			case 'r':
 				params.rotate = std::stoi(optarg);
+			case 'm':
+				sscanf(optarg, "%u:%u:%s", &params.sensor_width, &params.sensor_height, &params.sensor_format);
+				break;
+			case 'a':
+				params.autofocus = std::stoi(optarg);
 				break;
 			default:
-				printf("Usage: %s [-d dual cameras] [-w width] [-h height] [-p x,y,width,height][-f fps] [-s shutter-speed-ns] [-e exposure] [-t timeout] \n", argv[0]);
+				/* printf("Usage: %s [-d dual_cameras] [-w width] [-h height] [-p x,y,width,height][-f fps] [-s shutter-speed-ns] [-e exposure] [-t timeout] " \
+			                     "[-r rotation_angle] [-m sensor_width:sensor_height:sensor_format] [-a autofocus] \n", argv[0]); */
 				break;
 		}
 	}
 	
-	if (arg < 1)
-		printf("Usage: %s [-d dual cameras] [-w width] [-h height] [-p width,height,x_off,y_off][-f fps] [-s shutter-speed-ns] [-e exposure] [-t timeout] \n", argv[0]);
+	if (argc < 1)
+		printf("Usage: %s [-d dual cameras] [-w width] [-h height] [-p width,height,x_off,y_off][-f fps] [-s shutter-speed-ns] [-e exposure] [-t timeout] " \
+		                  "[-r rotation_angle] [-m sensor_width:sensor_height:senso_format] [-a autofocus] \n", argv[0]);
 	
 	std::unique_ptr<CameraManager> cm = std::make_unique<CameraManager>();
 	cm->start();
@@ -218,11 +289,16 @@ int main(int argc, char **argv)
 	camera2 = cm->get(cameraId2);
 	camera2->acquire();
 
+	StreamRoles stream_roles = { StreamRole::Viewfinder };
+
+	if (params.sensor_width != 0 && params.sensor_height !=0)
+		stream_roles.push_back(StreamRole::Raw);
+
 	std::unique_ptr<CameraConfiguration> config =
-		camera->generateConfiguration( { StreamRole::Viewfinder } );
+		camera->generateConfiguration( stream_roles );
 		
 	std::unique_ptr<CameraConfiguration> config2 =
-		camera2->generateConfiguration( { StreamRole::Viewfinder } );
+		camera2->generateConfiguration( stream_roles);
 		
 	if (!config)
 		printf("failed to generate viewfinder configuration");
@@ -237,6 +313,7 @@ int main(int argc, char **argv)
 	
     Size size(1280, 960);
 	auto area = camera->properties().get(properties::PixelArrayActiveAreas);
+	//We are directly setting the viewfinder width and height here
 	if (params.width != 0 && params.height != 0) //width and height were input
 		size=Size(params.width, params.height);
     else if (area)
@@ -244,7 +321,6 @@ int main(int argc, char **argv)
 		// The idea here is that most sensors will have a 2x2 binned mode that
 		// we can pick up. 
 		size = (*area)[0].size() / 2;
-		//size = size.boundedToAspectRatio(Size(params.width, params.height));
 		size.alignDownTo(2, 2); // YUV420 will want to be even
 		std::cout << "Viewfinder size chosen is " << size.toString() << std::endl;
 	}
@@ -252,13 +328,14 @@ int main(int argc, char **argv)
     config->at(0).pixelFormat = config2->at(0).pixelFormat = libcamera::formats::YUV420;
 	config->at(0).size = config2->at(0).size = size;
 
-	int val = camera->configure(config.get());
-	int val2 = camera2->configure(config2.get());
-	if (val || val2) {
-		std::cout << "CONFIGURATION FAILED!" << std::endl;
-		return EXIT_FAILURE;
+	if (params.sensor_width != 0 && params.sensor_height !=0) {
+		Size raw_size(params.sensor_width,params.sensor_height);
+		config->at(1).size = config2->at(1).size = raw_size;
+		config->at(1).pixelFormat = config2->at(1).pixelFormat = libcamera::formats::SBGGR12_CSI2P;
+		config->at(1).bufferCount = config->at(0).bufferCount;
+		config2->at(1).bufferCount = config2->at(0).bufferCount;
 	}
-	
+		
 	config->validate();
 	std::cout << "Validated viewfinder configuration is: "
 		  << streamConfig.toString() << std::endl;
@@ -271,8 +348,15 @@ int main(int argc, char **argv)
 	 * Once we have a validated configuration, we can apply it to the
 	 * Camera.
 	 */
-	camera->configure(config.get());
-	camera2->configure(config2.get());
+	if (camera->configure(config.get())) {
+		std::cerr << "Can't configure camera1" << std::endl;
+		return EXIT_FAILURE;
+	}
+
+	if (camera2->configure(config2.get())) {
+		std::cerr << "Can't configure camera2" << std::endl;
+		return EXIT_FAILURE;
+	}
 
 	FrameBufferAllocator *allocator = new FrameBufferAllocator(camera);
 
@@ -377,6 +461,7 @@ int main(int argc, char **argv)
 		controls.set(controls::AeExposureMode, cam_exposure_index);
 	if (!controls.get(controls::ExposureTime))
 		controls.set(controls::ExposureTime, params.shutterSpeed);
+
 	//if (!controls.get(controls::Brightness)) // Adjust the brightness of the output images, in the range -1.0 to 1.0
 	//	controls.set(controls::Brightness, 0.0);
 	//if (!controls.get(controls::Contrast)) // Adjust the contrast of the output image, where 1.0 = normal contrast
@@ -389,9 +474,9 @@ int main(int argc, char **argv)
 		int64_t frame_time = 1000000 / params.fps; // in us
 		controls.set(controls::FrameDurationLimits, libcamera::Span<const int64_t, 2>({ frame_time, frame_time }));
 	}
-    
-    // Set the exposure time
-    //controls.set(controls::ExposureTime, frame_time);
+
+	if (params.autofocus == 1)
+		controls.set(controls::AfMode, controls::AfModeContinuous);
     
 	camera->start(&controls);
 	camera2->start(&controls);
@@ -401,7 +486,7 @@ int main(int argc, char **argv)
 		
 	for (std::unique_ptr<Request> &request2 : requests2)
 		camera2->queueRequest(request2.get());
-		
+
 	if (params.rotate == 90 || params.rotate == 270)
 		std::swap(params.prev_width, params.prev_height);
 		
