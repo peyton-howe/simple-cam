@@ -189,7 +189,7 @@ int main(int argc, char **argv)
 		
 	std::unique_ptr<CameraConfiguration> config2 =
 		camera2->generateConfiguration( { StreamRole::Viewfinder } );
-		
+
 	if (!config)
 		printf("failed to generate viewfinder configuration");
 	if (!config2)
@@ -217,13 +217,6 @@ int main(int argc, char **argv)
 	
     config->at(0).pixelFormat = config2->at(0).pixelFormat = libcamera::formats::YUV420;
 	config->at(0).size = config2->at(0).size = size;
-
-	int val = camera->configure(config.get());
-	int val2 = camera2->configure(config2.get());
-	if (val || val2) {
-		std::cout << "CONFIGURATION FAILED!" << std::endl;
-		return EXIT_FAILURE;
-	}
 	
 	config->validate();
 	std::cout << "Validated viewfinder configuration is: "
@@ -232,6 +225,13 @@ int main(int argc, char **argv)
 	config2->validate();
 	std::cout << "Validated viewfinder configuration for camera 2 is: "
 		  << streamConfig2.toString() << std::endl;
+		  
+	int val = camera->configure(config.get());
+	int val2 = camera2->configure(config2.get());
+	if (val || val2) {
+		std::cout << "CONFIGURATION FAILED!" << std::endl;
+		return EXIT_FAILURE;
+	}
 
 	/*
 	 * Once we have a validated configuration, we can apply it to the
