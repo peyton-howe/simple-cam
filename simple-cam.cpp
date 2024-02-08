@@ -10,6 +10,8 @@
 #include <string> 
 #include <memory>
 #include <boost/lexical_cast.hpp>
+#include <queue>
+#include <sys/mman.h>
 
 #include "event_loop.h"
 #include "preview.h"
@@ -32,10 +34,16 @@ struct options
 std::unique_ptr<options> options_;
 int cam_exposure_index;
 uint64_t last_timestamp_ = 0;
+uint64_t last_timestamp2_ = 0;
 
 using namespace libcamera;
-static std::shared_ptr<Camera> camera;
-static std::shared_ptr<Camera> camera2;
+std::unique_ptr<CameraManager> cm;
+static std::shared_ptr<Camera> cameras[2];
+std::unique_ptr<CameraConfiguration> configs[2];
+std::vector<std::unique_ptr<Request>> requests[2];
+std::map<FrameBuffer *, std::vector<libcamera::Span<uint8_t>>> mapped_buffers[2];
+std::map<Stream *, std::queue<FrameBuffer *>> frame_buffers[2];
+FrameBufferAllocator *allocators[2];
 static EventLoop loop;
 
 static void processRequest(Request *request);
@@ -79,9 +87,10 @@ static void processRequest(Request *request)
 		makeBuffer(fd, cfg, buffer, 1);
 	}
 	
-	/* Re-queue the Request to the camera. */	
+	/* Re-queue the Request to the camera. */
+	
 	request->reuse(Request::ReuseBuffers);
-	camera->queueRequest(request);
+	cameras[0]->queueRequest(request);
 }
 
 static void processRequest2(Request *request)
@@ -98,25 +107,64 @@ static void processRequest2(Request *request)
 	
 	/* Re-queue the Request to the camera. */
 	request->reuse(Request::ReuseBuffers);
-	camera2->queueRequest(request);
+	cameras[1]->queueRequest(request);
 }
 
-void configureCamera(std::shared_ptr<Camera>& camera, std::unique_ptr<CameraConfiguration>& config, options& params)
+void makeRequests(int i)
 {
-	if (!config)
+	auto free_buffers(frame_buffers[i]);
+	while (true)
+	{
+		for (StreamConfiguration &cfg : *configs[i])
+		{
+			Stream *stream = cfg.stream();
+			if (stream == configs[i]->at(0).stream())
+			{
+				if (free_buffers[stream].empty())
+				{
+
+					std::cout << "Requests created\n";
+					return;
+				}
+				std::unique_ptr<Request> request = cameras[i]->createRequest();
+				if (!request)
+					throw std::runtime_error("failed to make request");
+				requests[i].push_back(std::move(request));
+			}
+			else if (free_buffers[stream].empty())
+				throw std::runtime_error("concurrent streams need matching numbers of buffers");
+
+			FrameBuffer *buffer = free_buffers[stream].front();
+			free_buffers[stream].pop();
+			if (requests[i].back()->addBuffer(stream, buffer) < 0)
+				throw std::runtime_error("failed to add buffer to request");
+		}
+	}
+}
+
+void configureCamera(int i, options& params)
+{
+	std::string cameraId = cm->cameras()[i]->id();
+	cameras[i] = cm->get(cameraId);
+	cameras[i]->acquire();
+	std::cout << "Acquired Camera: " << cameras[i]->id() << '\n';
+
+	configs[i] = cameras[i]->generateConfiguration( { StreamRole::Viewfinder } );
+	
+	if (!configs[i])
 		std::cout << "failed to generate viewfinder configuration\n";
 	
-    StreamConfiguration &streamConfig = config->at(0);
+    StreamConfiguration &streamConfig = configs[i]->at(0);
 	std::cout << "Default viewfinder configuration is: " << streamConfig.toString() << std::endl;
 	
-	int val = camera->configure(config.get());
+	int val = cameras[i]->configure(configs[i].get());
     if (val) {
         std::cout << "CONFIGURATION FAILED!" << std::endl;
         std::exit(EXIT_FAILURE);
     }
 	
     Size size(1280, 960);
-	auto area = camera->properties().get(properties::PixelArrayActiveAreas);
+	auto area = cameras[i]->properties().get(properties::PixelArrayActiveAreas);
 	if (params.width != 0 && params.height != 0) //width and height were input
 		size=Size(params.width, params.height);
     else if (area)
@@ -129,16 +177,16 @@ void configureCamera(std::shared_ptr<Camera>& camera, std::unique_ptr<CameraConf
 		std::cout << "Viewfinder size chosen is " << size.toString() << std::endl;
 	}
 	
-	config->at(0).pixelFormat = libcamera::formats::YUV420;
-	config->at(0).size = size;
+	configs[i]->at(0).pixelFormat = libcamera::formats::YUV420;
+	configs[i]->at(0).size = size;
 	
-	config->at(0).bufferCount = params.buffer_count;
+	configs[i]->at(0).bufferCount = params.buffer_count;
 	
-	config->validate();
+	configs[i]->validate();
 	std::cout << "Validated viewfinder configuration is: "
 		  << streamConfig.toString() << std::endl;
 		  
-	val = camera->configure(config.get());
+	val = cameras[i]->configure(configs[i].get());
 	if (val) {
 		std::cout << "CONFIGURATION FAILED!" << std::endl;
 		//return EXIT_FAILURE;
@@ -148,7 +196,38 @@ void configureCamera(std::shared_ptr<Camera>& camera, std::unique_ptr<CameraConf
 	 * Once we have a validated configuration, we can apply it to the
 	 * Camera.
 	 */
-	camera->configure(config.get());
+	cameras[i]->configure(configs[i].get());
+	
+	allocators[i] = new FrameBufferAllocator(cameras[i]);
+	for (StreamConfiguration &cfg : *configs[i]) {
+		Stream *stream = cfg.stream();
+		if (allocators[i]->allocate(stream) < 0)
+			std::cerr << "Can't allocate buffers" << std::endl;
+			
+		for (const std::unique_ptr<FrameBuffer> &buffer : allocators[i]->buffers(stream))
+		{
+			size_t buffer_size = 0;
+			for (unsigned j = 0; j < buffer->planes().size(); j++)
+			{
+				const FrameBuffer::Plane &plane = buffer->planes()[j];
+				buffer_size += plane.length;
+				
+				if (j == buffer->planes().size() -1 || plane.fd.get() != buffer->planes()[j+1].fd.get())
+				{
+					void *memory = mmap(NULL, buffer_size, PROT_READ | PROT_WRITE, MAP_SHARED, plane.fd.get(), 0);
+					mapped_buffers[i][buffer.get()].push_back(Span<uint8_t>(static_cast<uint8_t*>(memory), buffer_size));
+					buffer_size = 0;
+				}
+			}
+			frame_buffers[i][stream].push(buffer.get());
+		}
+		
+
+		size_t allocated = allocators[i]->buffers(cfg.stream()).size();
+		std::cout << "Allocated " << allocated << " buffers for stream" << std::endl;
+	}
+	
+	makeRequests(i);
 }
 
 int main(int argc, char **argv)
@@ -215,83 +294,25 @@ int main(int argc, char **argv)
 	if (arg < 1)
 		printf("Usage: %s [-d dual cameras] [-w width] [-h height] [-p width,height,x_off,y_off][-f fps] [-s shutter-speed-ns] [-e exposure] [-t timeout] \n", argv[0]);
 	
-	std::unique_ptr<CameraManager> cm = std::make_unique<CameraManager>();
+	// Initialize the camera Manager
+	cm = std::make_unique<CameraManager>();
 	cm->start();
 
+	// Ensure that cameras are connected
 	if (cm->cameras().empty()) {
 		std::cout << "No cameras were identified on the system."
 			  << std::endl;
 		cm->stop();
 		return EXIT_FAILURE;
 	}
-
-	std::string cameraId = cm->cameras()[0]->id();
-	camera = cm->get(cameraId);
-	camera->acquire();
 	
-	std::string cameraId2 = cm->cameras()[1]->id();
-	camera2 = cm->get(cameraId2);
-	camera2->acquire();
-
-	std::unique_ptr<CameraConfiguration> config =
-		camera->generateConfiguration( { StreamRole::Viewfinder } );
-		
-	std::unique_ptr<CameraConfiguration> config2 =
-		camera2->generateConfiguration( { StreamRole::Viewfinder } );
-		
-	configureCamera(camera, config, params);
-	configureCamera(camera2, config2, params);
-	
-	std::shared_ptr<libcamera::CameraConfiguration> configs[2];
-	configs[0] = std::move(config);
-	configs[1] = std::move(config2);
-	
-	FrameBufferAllocator *allocators[2] = {new FrameBufferAllocator(camera), new FrameBufferAllocator(camera2)};
+	// Setup each camera
 	for (int i = 0; i < 2; i++) {
-		for (StreamConfiguration &cfg : *configs[i]) {
-			int ret = allocators[i]->allocate(cfg.stream());
-			if (ret < 0) {
-				std::cerr << "Can't allocate buffers" << std::endl;
-				return EXIT_FAILURE;
-			}
-
-			size_t allocated = allocators[i]->buffers(cfg.stream()).size();
-			std::cout << "Allocated " << allocated << " buffers for stream" << std::endl;
-		}
+		configureCamera(i, params);
 	}
 	
-	std::vector<std::unique_ptr<Request>> requests;
-	std::vector<std::unique_ptr<Request>> requests2;
-	for (int cameraIndex = 0; cameraIndex < 2; ++cameraIndex) {
-		StreamConfiguration &streamConfig = configs[cameraIndex]->at(0);
-		Stream *stream = streamConfig.stream();
-		const std::vector<std::unique_ptr<FrameBuffer>> &buffers = allocators[cameraIndex]->buffers(stream);
-
-		std::vector<std::unique_ptr<Request>>& currentRequests = (cameraIndex == 0) ? requests : requests2;
-
-		for (unsigned int i = 0; i < buffers.size(); ++i) {
-			std::unique_ptr<Request> request = (cameraIndex == 0) ? camera->createRequest() : camera2->createRequest();
-
-			if (!request)
-			{
-				std::cerr << "Can't create request" << std::endl;
-				return EXIT_FAILURE;
-			}
-
-			const std::unique_ptr<FrameBuffer> &buffer = buffers[i];
-			int ret = request->addBuffer(stream, buffer.get());
-			if (ret < 0)
-			{
-				std::cerr << "Can't set buffer for request" << std::endl;
-				return EXIT_FAILURE;
-			}
-
-			currentRequests.push_back(std::move(request));
-		}
-	}
-	
-	camera->requestCompleted.connect(requestComplete);
-	camera2->requestCompleted.connect(requestComplete2);
+	cameras[0]->requestCompleted.connect(requestComplete);
+	cameras[1]->requestCompleted.connect(requestComplete2);
 	
 	ControlList controls;
 	
@@ -320,14 +341,11 @@ int main(int argc, char **argv)
     // Set the exposure time
     //controls.set(controls::ExposureTime, frame_time);
     
-	camera->start(&controls);
-	camera2->start(&controls);
-	
-	for (std::unique_ptr<Request> &request : requests)
-		camera->queueRequest(request.get());
-		
-	for (std::unique_ptr<Request> &request2 : requests2)
-		camera2->queueRequest(request2.get());
+    for (int i = 0; i < 2; i++) {
+		cameras[i]->start(&controls);
+		for (std::unique_ptr<Request> &request : requests[i])
+			cameras[i]->queueRequest(request.get());
+	}
 		
 	// Setup EGL context
 	makeWindow("simple-cam", params.prev_x, params.prev_y, params.prev_width, params.prev_height);
@@ -337,17 +355,15 @@ int main(int argc, char **argv)
 	std::cout << "Capture ran for " << params.timeout << " seconds and "
 		  << "stopped with exit status: " << ret << std::endl;
 
-	camera->stop();
-	camera2->stop();
-	delete allocators[0];
-	delete allocators[1];
-	camera->release();
-	camera2->release();
-	camera.reset();
-	camera2.reset();
-	cm->stop();
-	requests.clear();
-	requests2.clear();
+
+	for (int i = 0; i < 2; i++) {
+		cameras[i]->stop();
+		delete allocators[i];
+		cameras[i]->release();
+		cameras[i].reset();
+		requests[i].clear();
+	}
+    cm->stop();
 	cleanup();
 
 	return EXIT_SUCCESS;
