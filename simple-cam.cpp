@@ -26,6 +26,7 @@ struct options
 	std::string exposure;
 	int exposure_index;
 	int timeout;
+	int buffer_count;
 };
 
 std::unique_ptr<options> options_;
@@ -44,7 +45,6 @@ static void requestComplete(Request *request)
 {
 	if (request->status() == Request::RequestCancelled)
 		return;
-
 	loop.callLater(std::bind(&processRequest, request));
 }
 
@@ -52,7 +52,6 @@ static void requestComplete2(Request *request)
 {
     if (request->status() == Request::RequestCancelled)
 		return;
-
 	loop.callLater(std::bind(&processRequest2, request));
 }
 
@@ -80,8 +79,6 @@ static void processRequest(Request *request)
 		makeBuffer(fd, cfg, buffer, 1);
 	}
 	
-	//std::cout << "grabbed a frame from camera 1\n";
-
 	/* Re-queue the Request to the camera. */	
 	request->reuse(Request::ReuseBuffers);
 	camera->queueRequest(request);
@@ -99,11 +96,59 @@ static void processRequest2(Request *request)
 		makeBuffer(fd2, cfg2, buffer2, 2);
 	}
 	
-	//std::cout << "grabbed a frame from camera 2\n";
-	
 	/* Re-queue the Request to the camera. */
 	request->reuse(Request::ReuseBuffers);
 	camera2->queueRequest(request);
+}
+
+void configureCamera(std::shared_ptr<Camera>& camera, std::unique_ptr<CameraConfiguration>& config, options& params)
+{
+	if (!config)
+		std::cout << "failed to generate viewfinder configuration\n";
+	
+    StreamConfiguration &streamConfig = config->at(0);
+	std::cout << "Default viewfinder configuration is: " << streamConfig.toString() << std::endl;
+	
+	int val = camera->configure(config.get());
+    if (val) {
+        std::cout << "CONFIGURATION FAILED!" << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+	
+    Size size(1280, 960);
+	auto area = camera->properties().get(properties::PixelArrayActiveAreas);
+	if (params.width != 0 && params.height != 0) //width and height were input
+		size=Size(params.width, params.height);
+    else if (area)
+	{
+		// The idea here is that most sensors will have a 2x2 binned mode that
+		// we can pick up.
+		size = (*area)[0].size() / 2;
+		//size = size.boundedToAspectRatio(Size(params.width, params.height));
+		size.alignDownTo(2, 2); // YUV420 will want to be even
+		std::cout << "Viewfinder size chosen is " << size.toString() << std::endl;
+	}
+	
+	config->at(0).pixelFormat = libcamera::formats::YUV420;
+	config->at(0).size = size;
+	
+	config->at(0).bufferCount = params.buffer_count;
+	
+	config->validate();
+	std::cout << "Validated viewfinder configuration is: "
+		  << streamConfig.toString() << std::endl;
+		  
+	val = camera->configure(config.get());
+	if (val) {
+		std::cout << "CONFIGURATION FAILED!" << std::endl;
+		//return EXIT_FAILURE;
+	}
+
+	/*
+	 * Once we have a validated configuration, we can apply it to the
+	 * Camera.
+	 */
+	camera->configure(config.get());
 }
 
 int main(int argc, char **argv)
@@ -120,11 +165,12 @@ int main(int argc, char **argv)
 		.shutterSpeed = 0,
 		.exposure = "normal",
 		.exposure_index = cam_exposure_index,
-		.timeout = 10
+		.timeout = 10,
+		.buffer_count = 4
 	};
 			
 	int arg;
-	while ((arg = getopt(argc, argv, "r:w:h:p:f:s:e:t:")) != -1)
+	while ((arg = getopt(argc, argv, "r:w:h:p:f:s:e:t:b:")) != -1)
 	{
 		switch (arg)
 		{
@@ -156,6 +202,9 @@ int main(int argc, char **argv)
 				break;
 			case 't':
 				params.timeout = std::stoi(optarg);
+				break;
+			case 'b':
+				params.buffer_count = std::stoi(optarg);
 				break;
 			default:
 				printf("Usage: %s [-d dual cameras] [-w width] [-h height] [-p x,y,width,height][-f fps] [-s shutter-speed-ns] [-e exposure] [-t timeout] \n", argv[0]);
@@ -189,140 +238,58 @@ int main(int argc, char **argv)
 		
 	std::unique_ptr<CameraConfiguration> config2 =
 		camera2->generateConfiguration( { StreamRole::Viewfinder } );
+		
+	configureCamera(camera, config, params);
+	configureCamera(camera2, config2, params);
+	
+	std::shared_ptr<libcamera::CameraConfiguration> configs[2];
+	configs[0] = std::move(config);
+	configs[1] = std::move(config2);
+	
+	FrameBufferAllocator *allocators[2] = {new FrameBufferAllocator(camera), new FrameBufferAllocator(camera2)};
+	for (int i = 0; i < 2; i++) {
+		for (StreamConfiguration &cfg : *configs[i]) {
+			int ret = allocators[i]->allocate(cfg.stream());
+			if (ret < 0) {
+				std::cerr << "Can't allocate buffers" << std::endl;
+				return EXIT_FAILURE;
+			}
 
-	if (!config)
-		printf("failed to generate viewfinder configuration");
-	if (!config2)
-		printf("failed to generate viewfinder configuration for camera 2");
-	
-	StreamConfiguration &streamConfig = config->at(0);
-	StreamConfiguration &streamConfig2 = config2->at(0);
-	
-	std::cout << "Default viewfinder configuration is: " << streamConfig.toString() << std::endl;
-	std::cout << "Default viewfinder configuration2 is: " << streamConfig2.toString() << std::endl;
-	
-    Size size(1280, 960);
-	auto area = camera->properties().get(properties::PixelArrayActiveAreas);
-	if (params.width != 0 && params.height != 0) //width and height were input
-		size=Size(params.width, params.height);
-    else if (area)
-	{
-		// The idea here is that most sensors will have a 2x2 binned mode that
-		// we can pick up. 
-		size = (*area)[0].size() / 2;
-		//size = size.boundedToAspectRatio(Size(params.width, params.height));
-		size.alignDownTo(2, 2); // YUV420 will want to be even
-		std::cout << "Viewfinder size chosen is " << size.toString() << std::endl;
-	}
-	
-    config->at(0).pixelFormat = config2->at(0).pixelFormat = libcamera::formats::YUV420;
-	config->at(0).size = config2->at(0).size = size;
-	
-	config->validate();
-	std::cout << "Validated viewfinder configuration is: "
-		  << streamConfig.toString() << std::endl;
-		  
-	config2->validate();
-	std::cout << "Validated viewfinder configuration for camera 2 is: "
-		  << streamConfig2.toString() << std::endl;
-		  
-	int val = camera->configure(config.get());
-	int val2 = camera2->configure(config2.get());
-	if (val || val2) {
-		std::cout << "CONFIGURATION FAILED!" << std::endl;
-		return EXIT_FAILURE;
-	}
-
-	/*
-	 * Once we have a validated configuration, we can apply it to the
-	 * Camera.
-	 */
-	camera->configure(config.get());
-	camera2->configure(config2.get());
-
-	FrameBufferAllocator *allocator = new FrameBufferAllocator(camera);
-
-	for (StreamConfiguration &cfg : *config) {
-		int ret = allocator->allocate(cfg.stream());
-		if (ret < 0) {
-			std::cerr << "Can't allocate buffers" << std::endl;
-			return EXIT_FAILURE;
+			size_t allocated = allocators[i]->buffers(cfg.stream()).size();
+			std::cout << "Allocated " << allocated << " buffers for stream" << std::endl;
 		}
-
-		size_t allocated = allocator->buffers(cfg.stream()).size();
-		std::cout << "Allocated " << allocated << " buffers for stream" << std::endl;
 	}
 	
-	FrameBufferAllocator *allocator2 = new FrameBufferAllocator(camera2);
-
-	for (StreamConfiguration &cfg2 : *config2) {
-		int ret = allocator2->allocate(cfg2.stream());
-		if (ret < 0) {
-			std::cerr << "Can't allocate buffers for stream 2" << std::endl;
-			return EXIT_FAILURE;
-		}
-
-		size_t allocated = allocator2->buffers(cfg2.stream()).size();
-		std::cout << "Allocated " << allocated << " buffers for stream 2" << std::endl;
-	}
-	Stream *stream = streamConfig.stream();
-	const std::vector<std::unique_ptr<FrameBuffer>> &buffers = allocator->buffers(stream);
 	std::vector<std::unique_ptr<Request>> requests;
-	for (unsigned int i = 0; i < buffers.size(); ++i) {
-		std::unique_ptr<Request> request = camera->createRequest();
-		if (!request)
-		{
-			std::cerr << "Can't create request" << std::endl;
-			return EXIT_FAILURE;
+	std::vector<std::unique_ptr<Request>> requests2;
+	for (int cameraIndex = 0; cameraIndex < 2; ++cameraIndex) {
+		StreamConfiguration &streamConfig = configs[cameraIndex]->at(0);
+		Stream *stream = streamConfig.stream();
+		const std::vector<std::unique_ptr<FrameBuffer>> &buffers = allocators[cameraIndex]->buffers(stream);
+
+		std::vector<std::unique_ptr<Request>>& currentRequests = (cameraIndex == 0) ? requests : requests2;
+
+		for (unsigned int i = 0; i < buffers.size(); ++i) {
+			std::unique_ptr<Request> request = (cameraIndex == 0) ? camera->createRequest() : camera2->createRequest();
+
+			if (!request)
+			{
+				std::cerr << "Can't create request" << std::endl;
+				return EXIT_FAILURE;
+			}
+
+			const std::unique_ptr<FrameBuffer> &buffer = buffers[i];
+			int ret = request->addBuffer(stream, buffer.get());
+			if (ret < 0)
+			{
+				std::cerr << "Can't set buffer for request" << std::endl;
+				return EXIT_FAILURE;
+			}
+
+			currentRequests.push_back(std::move(request));
 		}
-
-		const std::unique_ptr<FrameBuffer> &buffer = buffers[i];
-		int ret = request->addBuffer(stream, buffer.get());
-		if (ret < 0)
-		{
-			std::cerr << "Can't set buffer for request"
-				  << std::endl;
-			return EXIT_FAILURE;
-		}
-
-		/*
-		 * Controls can be added to a request on a per frame basis.
-		 */
-		//ControlList &controls = request->controls();
-		//controls.set(controls::Brightness, 0.5);
-
-		requests.push_back(std::move(request));
 	}
 	
-	Stream *stream2 = streamConfig2.stream();
-	const std::vector<std::unique_ptr<FrameBuffer>> &buffers2 = allocator2->buffers(stream2);
-	std::vector<std::unique_ptr<Request>> requests2;
-	for (unsigned int i = 0; i < buffers2.size(); ++i) {
-		std::unique_ptr<Request> request2 = camera2->createRequest();
-		if (!request2)
-		{
-			std::cerr << "Can't create request for camera 2" << std::endl;
-			return EXIT_FAILURE;
-		}
-
-		const std::unique_ptr<FrameBuffer> &buffer2 = buffers2[i];
-		int ret2 = request2->addBuffer(stream2, buffer2.get());
-		if (ret2 < 0)
-		{
-			std::cerr << "Can't set buffer for request for camera 2"
-				  << std::endl;
-			return EXIT_FAILURE;
-		}
-
-		/*
-		 * Controls can be added to a request on a per frame basis.
-		 */
-		//ControlList &controls2 = request2->controls();
-		//controls2.set(controls::Brightness, 0.5);
-
-		requests2.push_back(std::move(request2));
-	}
-
 	camera->requestCompleted.connect(requestComplete);
 	camera2->requestCompleted.connect(requestComplete2);
 	
@@ -339,20 +306,16 @@ int main(int argc, char **argv)
 		throw std::runtime_error("Invalid exposure mode:" + params.exposure);
 	cam_exposure_index = exposure_table[params.exposure];
 	
-	if (!controls.get(controls::AeExposureMode))
-		controls.set(controls::AeExposureMode, cam_exposure_index);
-	if (!controls.get(controls::ExposureTime))
-		controls.set(controls::ExposureTime, params.shutterSpeed);
+	int64_t frame_time = 1000000 / params.fps; // in us
+	
+	controls.set(controls::AeExposureMode, cam_exposure_index);
+	controls.set(controls::ExposureTime, params.shutterSpeed);
+	controls.set(controls::FrameDurationLimits, libcamera::Span<const int64_t, 2>({ frame_time, frame_time }));
+	
 	//if (!controls.get(controls::Brightness)) // Adjust the brightness of the output images, in the range -1.0 to 1.0
 	//	controls.set(controls::Brightness, 0.0);
 	//if (!controls.get(controls::Contrast)) // Adjust the contrast of the output image, where 1.0 = normal contrast
 	//	controls.set(controls::Contrast, 1.0);
-	
-	if (params.fps > 0)
-	{
-		int64_t frame_time = 1000000 / params.fps; // in us
-		controls.set(controls::FrameDurationLimits, libcamera::Span<const int64_t, 2>({ frame_time, frame_time }));
-	}
     
     // Set the exposure time
     //controls.set(controls::ExposureTime, frame_time);
@@ -376,10 +339,8 @@ int main(int argc, char **argv)
 
 	camera->stop();
 	camera2->stop();
-	allocator->free(stream);
-	allocator2->free(stream2);
-	delete allocator;
-	delete allocator2;
+	delete allocators[0];
+	delete allocators[1];
 	camera->release();
 	camera2->release();
 	camera.reset();
