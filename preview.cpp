@@ -528,19 +528,10 @@ void makeBuffer(int fd, libcamera::StreamConfiguration const &info, libcamera::F
 	if (!image)
 		throw std::runtime_error("failed to import fd " + std::to_string(fd));
 
-	if (camera_num == 1){
-		//if (glIsTexture(FramebufferName))
-		//	glDeleteTextures(1, &FramebufferName);
-		//glDeleteTextures(1, &FramebufferName);
-		//glGenTextures(1, &FramebufferName);
+	if (camera_num == 0)
 		glBindTexture(GL_TEXTURE_EXTERNAL_OES, egl.FramebufferName);
-	}else if (camera_num == 2){
-		//if (glIsTexture(FramebufferName2))
-		//	glDeleteTextures(1, &FramebufferName2);
-		//glDeleteTextures(1, &FramebufferName2);
-		//glGenTextures(1, &FramebufferName2);
+	else if (camera_num == 1)
 		glBindTexture(GL_TEXTURE_EXTERNAL_OES, egl.FramebufferName2);
-	}
 	
 	//glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	//glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
